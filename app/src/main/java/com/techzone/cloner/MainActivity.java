@@ -121,14 +121,14 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone APK Re-Cloner v3.3");
+title.setText("⚡ TechZone APK Re-Cloner v3.4");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("Exact 16KB ZipAlign (No Timestamp Shift) + Split Installer");
+statusBanner.setText("16KB ZipAlign + Provider & Permission Conflict Fix");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
 statusBanner.setTextSize(12);
 statusBanner.setPadding(0, 8, 0, 20);
@@ -323,7 +323,7 @@ if (installed) {
 badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "⚡ Split Bundle (Exact 16KB Aligned)" : "○ Ready to Build Standalone APK");
+badge.setText(item.isSplitApk ? "⚡ Split Bundle (16KB + Provider Fix)" : "○ Ready to Build Standalone APK");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -453,7 +453,7 @@ ProgressBar pb = new ProgressBar(this);
 progressLayout.addView(pb);
 
 TextView msg = new TextView(this);
-msg.setText("\nAligning Native Libraries (.so) to 16KB & Signing Split APKs...\nPlease wait...");
+msg.setText("\nPatching Providers, Aligning .so to 16KB & Signing...\nPlease wait...");
 msg.setTextColor(Color.WHITE);
 msg.setGravity(Gravity.CENTER);
 progressLayout.addView(msg);
@@ -639,14 +639,13 @@ if (name.equals("AndroidManifest.xml")) {
 data = patchAxmlManifestSafely(data, oldPkg, newPkg);
 }
 
-// تنبيه هام جداً: لا تستدعِ newEntry.setTime() نهائياً!
-// استدعاء setTime في أندرويد يجعل ZipOutputStream يحقن 5 إلى 9 بايتات مخفية (Extended Timestamp 0x5455) مما يفسد المحاذاة!
+// عدم استدعاء setTime نهائياً لمنع حقن بايتات Extended Timestamp المخفية
 ZipEntry newEntry = new ZipEntry(name);
 
 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
 boolean isArsc = name.equals("resources.arsc");
 
-// 3. تخزين ملفات .so و resources.arsc كـ STORED مع محاذاة دقيقة 16KB بدون أي إزاحة
+// 3. تخزين ملفات .so و resources.arsc كـ STORED مع محاذاة دقيقة 16KB
 if (isNativeLib || isArsc || entry.getMethod() == ZipEntry.STORED) {
 newEntry.setMethod(ZipEntry.STORED);
 newEntry.setSize(data.length);
@@ -655,11 +654,9 @@ CRC32 crc = new CRC32();
 crc.update(data);
 newEntry.setCrc(crc.getValue());
 
-// محاذاة 16384 بايت (16KB) لملفات الـ .so (تقبل القسمة على 4096 و 16384 معاً) و 4 بايت لباقي الملفات
 int align = isNativeLib ? 16384 : 4;
 byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
 
-// الآن بدون setTime، حجم الـ Header هو بالضبط 30 بايت + طول الاسم بدون أي بايتات مخفية
 long dataStartOffset = cos.count + 30 + nameBytes.length;
 int padding = (int) ((align - (dataStartOffset % align)) % align);
 
@@ -685,7 +682,7 @@ ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 int offset = 8;
 int fileSize = buf.getInt(4);
 
-// 1. Replace exact package string (null-terminated) in Base & Splits
+// 1. استبدال اسم الحزمة الصريح المنتهي بـ Null-terminator
 byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
 byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
 replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
@@ -694,34 +691,47 @@ byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
 byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
 replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
 
+int nameResIdx = -1;
 int authoritiesResIdx = -1;
 int sharedUserIdResIdx = -1;
 int extractNativeLibsIdx = -1;
 
 int stringPoolOffset = -1;
 
-// 2. Scan chunks in BOTH Base and Split manifests!
+// 2. فحص جميع الـ Chunks في الـ Binary XML
 while (offset + 8 <= fileSize && offset + 8 <= data.length) {
 int chunkType = buf.getShort(offset) & 0xFFFF;
 int headerSize = buf.getShort(offset + 2) & 0xFFFF;
 int chunkSize = buf.getInt(offset + 4);
 if (chunkSize <= 0) break;
 
-if (chunkType == 0x0001) {
+if (chunkType == 0x0001) { // RES_STRING_POOL_TYPE
 stringPoolOffset = offset;
-} else if (chunkType == 0x0180) {
+} else if (chunkType == 0x0180) { // RES_XML_RESOURCE_MAP_TYPE
 int count = (chunkSize - headerSize) / 4;
 for (int i = 0; i < count; i++) {
 int resId = buf.getInt(offset + headerSize + (i * 4));
-if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
+if (resId == 0x01010003) nameResIdx = i; // android:name
+else if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
 else if (resId == 0x0101000b) sharedUserIdResIdx = i; // android:sharedUserId
 else if (resId == 0x010104ea) extractNativeLibsIdx = i; // android:extractNativeLibs
 }
-} else if (chunkType == 0x0102) { // START_ELEMENT
-int attrStart = buf.getShort(offset + 20) & 0xFFFF;
-int attrSize = buf.getShort(offset + 22) & 0xFFFF;
-int attrCount = buf.getShort(offset + 24) & 0xFFFF;
+} else if (chunkType == 0x0102) { // RES_XML_START_ELEMENT_TYPE
+// الإزاحات الصحيحة لهيكل ResXMLTree_attrExt في أندرويد:
+// offset + 16: ns (4 bytes)
+// offset + 20: element name index (4 bytes)
+// offset + 24: attributeStart (2 bytes)
+// offset + 26: attributeSize (2 bytes)
+// offset + 28: attributeCount (2 bytes)
+int elemNameIdx = buf.getInt(offset + 20);
+int attrStart = buf.getShort(offset + 24) & 0xFFFF;
+int attrSize = buf.getShort(offset + 26) & 0xFFFF;
+int attrCount = buf.getShort(offset + 28) & 0xFFFF;
 int attrsBase = offset + 16 + attrStart;
+
+String tagName = (stringPoolOffset != -1) ? getStringFromPool(data, buf, stringPoolOffset, elemNameIdx) : "";
+boolean isPermissionTag = "permission".equals(tagName) || "uses-permission".equals(tagName) || "permission-tree".equals(tagName);
+boolean isProviderTag = "provider".equals(tagName);
 
 for (int i = 0; i < attrCount; i++) {
 int attrOffset = attrsBase + (i * attrSize);
@@ -729,41 +739,61 @@ if (attrOffset + 20 > data.length) break;
 
 int nameIdx = buf.getInt(attrOffset + 4);
 int rawValueIdx = buf.getInt(attrOffset + 8);
+int typedDataType = buf.get(attrOffset + 15) & 0xFF;
+int typedValueIdx = buf.getInt(attrOffset + 16);
 
-// Patch android:authorities
-if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && rawValueIdx >= 0 && stringPoolOffset != -1) {
-patchSpecificStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
+int strIdx = (rawValueIdx >= 0) ? rawValueIdx : ((typedDataType == 0x03) ? typedValueIdx : -1);
+
+// أ) تعديل android:authorities لمنع خطأ INSTALL_FAILED_CONFLICTING_PROVIDER نهائياً
+if ((nameIdx == authoritiesResIdx && authoritiesResIdx != -1) || (isProviderTag && nameIdx != nameResIdx)) {
+if (stringPoolOffset != -1) {
+if (rawValueIdx >= 0) {
+patchAuthorityStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
 }
-// Neutralize android:sharedUserId
+if (typedDataType == 0x03 && typedValueIdx >= 0 && typedValueIdx != rawValueIdx) {
+patchAuthorityStringInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg);
+}
+}
+}
+// ب) تعديل صلاحيات التطبيق المخصصة <permission android:name="..."> لمنع DUPLICATE_PERMISSION
+else if (isPermissionTag && nameIdx == nameResIdx && nameResIdx != -1 && strIdx >= 0 && stringPoolOffset != -1) {
+patchSpecificStringInPool(data, buf, stringPoolOffset, strIdx, oldPkg, newPkg);
+}
+// ج) تعطيل android:sharedUserId
 else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
 buf.putInt(attrOffset + 4, -1);
 }
-// Force android:extractNativeLibs = true (-1) while keeping .so files STORED & 16KB aligned
+// د) ضبط android:extractNativeLibs = true (-1)
 else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
 buf.putInt(attrOffset + 8, -1);
 buf.putShort(attrOffset + 12, (short) 8);
 buf.put(attrOffset + 14, (byte) 0);
 buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
-buf.putInt(attrOffset + 16, -1); // true (works with both STORED and DEFLATED)
+buf.putInt(attrOffset + 16, -1); // true
 }
 }
 }
 offset += chunkSize;
 }
 
-// Patch custom permissions so they don't conflict with original app
+// تعديل أي نصوص صلاحيات أو مزودات شائعة مباشرة في جدول النصوص
 replaceStringInBinaryXml(data, oldPkg + ".DYNAMIC_RECEIVER", newPkg + ".DYNAMIC_RECEIVER");
 replaceStringInBinaryXml(data, oldPkg + ".permission.", newPkg + ".permission.");
+replaceStringInBinaryXml(data, oldPkg + ".notifee", newPkg + ".notifee");
+replaceStringInBinaryXml(data, oldPkg + ".fileprovider", newPkg + ".fileprovider");
+replaceStringInBinaryXml(data, oldPkg + ".androidx-startup", newPkg + ".androidx-startup");
+replaceStringInBinaryXml(data, oldPkg + ".firebaseinitprovider", newPkg + ".firebaseinitprovider");
 
 } catch (Exception ignored) {
 }
 return data;
 }
 
-private void patchSpecificStringInPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex, String oldPkg, String newPkg) {
+private String getStringFromPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex) {
 try {
+if (strIndex < 0) return "";
 int stringCount = buf.getInt(poolOffset + 8);
-if (strIndex >= stringCount) return;
+if (strIndex >= stringCount) return "";
 
 int flags = buf.getInt(poolOffset + 16);
 boolean isUtf8 = (flags & (1 << 8)) != 0;
@@ -778,69 +808,6 @@ int len2 = data[strOffset + skip] & 0xFF;
 int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
 int actualStart = strOffset + skip + skip2;
 int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
-
-byte[] slice = new byte[byteLen];
-System.arraycopy(data, actualStart, slice, 0, byteLen);
-replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_8), newPkg.getBytes(StandardCharsets.UTF_8));
-System.arraycopy(slice, 0, data, actualStart, byteLen);
+return new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
 } else {
-int charLen = buf.getShort(strOffset) & 0xFFFF;
-int skip = ((charLen & 0x8000) != 0) ? 4 : 2;
-int actualStart = strOffset + skip;
-int byteLen = charLen * 2;
-
-byte[] slice = new byte[byteLen];
-System.arraycopy(data, actualStart, slice, 0, byteLen);
-replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_16LE), newPkg.getBytes(StandardCharsets.UTF_16LE));
-System.arraycopy(slice, 0, data, actualStart, byteLen);
-}
-} catch (Exception ignored) {
-}
-}
-
-private void replaceStringInBinaryXml(byte[] manifestBytes, String oldStr, String newStr) {
-if (oldStr.length() != newStr.length()) return;
-
-byte[] oldUtf16 = oldStr.getBytes(StandardCharsets.UTF_16LE);
-byte[] newUtf16 = newStr.getBytes(StandardCharsets.UTF_16LE);
-replaceBytesInPlace(manifestBytes, oldUtf16, newUtf16);
-
-byte[] oldUtf8 = oldStr.getBytes(StandardCharsets.UTF_8);
-byte[] newUtf8 = newStr.getBytes(StandardCharsets.UTF_8);
-replaceBytesInPlace(manifestBytes, oldUtf8, newUtf8);
-}
-
-private void replaceBytesInPlace(byte[] source, byte[] target, byte[] replacement) {
-if (target.length != replacement.length) return;
-for (int i = 0; i <= source.length - target.length; i++) {
-boolean match = true;
-for (int j = 0; j < target.length; j++) {
-if (source[i + j] != target[j]) {
-match = false;
-break;
-}
-}
-if (match) {
-System.arraycopy(replacement, 0, source, i, replacement.length);
-i += target.length - 1;
-}
-}
-}
-
-private void copyFile(File src, File dst) throws Exception {
-try (InputStream in = new FileInputStream(src);
-OutputStream out = new FileOutputStream(dst)) {
-byte[] buf = new byte[16384];
-int len;
-while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
-}
-}
-
-private byte[] readAllBytes(InputStream is) throws Exception {
-ByteArrayOutputStream bos = new ByteArrayOutputStream();
-byte[] buf = new byte[16384];
-int len;
-while ((len = is.read(buf)) > 0) bos.write(buf, 0, len);
-return bos.toByteArray();
-}
-}
+int len1 = buf
