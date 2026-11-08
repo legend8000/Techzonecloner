@@ -1,14 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+xmlns:tools="http://schemas.android.com/tools">
+
 <uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+tools:ignore="QueryAllPackagesPermission" />
 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-<application android:name=".ClonerApp" android:allowBackup="true" android:label="TechZone Cloner" android:supportsRtl="true" android:theme="@style/Theme.AppCompat.DayNight.DarkActionBar">
-<activity android:name=".MainActivity" android:exported="true">
+
+<application
+android:name=".ClonerApp"
+android:allowBackup="true"
+android:label="TechZone Cloner"
+android:supportsRtl="true"
+android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+
+<activity
+android:name=".MainActivity"
+android:exported="true">
 <intent-filter>
 <action android:name="android.intent.action.MAIN" />
 <category android:name="android.intent.category.LAUNCHER" />
 </intent-filter>
 </activity>
+
+<provider
+android:name="androidx.core.content.FileProvider"
+android:authorities="com.techzone.cloner.provider"
+android:exported="false"
+android:grantUriPermissions="true">
+<meta-data
+android:name="android.support.FILE_PROVIDER_PATHS"
+android:resource="@android:anim/linear_interpolator" />
+</provider>
 </application>
 </manifest>
