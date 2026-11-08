@@ -39,6 +39,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -52,7 +54,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -92,14 +93,14 @@ public class MainActivity extends AppCompatActivity {
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone APK Re-Cloner v2.1");
+        title.setText("⚡ TechZone APK Re-Cloner v2.2");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Merges Split APKs + Standalone Clone + New Android ID");
+        statusBanner.setText("True Binary AXML Patcher + Split APK Merger");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -295,7 +296,7 @@ public class MainActivity extends AppCompatActivity {
                 badge.setText("✔ Standalone Clone #" + currentCloneNum + " Installed on Phone");
                 badge.setTextColor(Color.parseColor("#10B981"));
             } else {
-                badge.setText(item.isSplitApk ? "⚡ Split APK (Auto-Merge Enabled)" : "○ Ready to Build Standalone APK");
+                badge.setText(item.isSplitApk ? "⚡ Split APK (Binary Fix Ready)" : "○ Ready to Build Standalone APK");
                 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
             }
             badge.setTextSize(11);
@@ -337,7 +338,7 @@ public class MainActivity extends AppCompatActivity {
 
         TextView infoBox = new TextView(this);
         infoBox.setText("📦 New Package: " + targetClonePkg +
-                "\n🧩 Split Merger: " + (item.isSplitApk ? "Merging all splits into 1 APK" : "Standard Single APK") +
+                "\n🧩 Split Merger: " + (item.isSplitApk ? "Merging all splits + Fixing NativeLibs ID" : "Standard Single APK") +
                 "\n🔑 Identity: Unique Signing Key -> New Android ID" +
                 "\n📁 Output: Saved in Downloads folder");
         infoBox.setTextColor(Color.parseColor("#38BDF8"));
@@ -405,7 +406,7 @@ public class MainActivity extends AppCompatActivity {
         progressLayout.addView(pb);
 
         TextView msg = new TextView(this);
-        msg.setText("\nMerging Split APKs, Patching Manifest & Signing...\nPlease wait (15-30 seconds)...");
+        msg.setText("\nMerging Split APKs & Patching Binary Resource IDs...\nPlease wait (15-30 seconds)...");
         msg.setTextColor(Color.WHITE);
         msg.setGravity(Gravity.CENTER);
         progressLayout.addView(msg);
@@ -426,7 +427,7 @@ public class MainActivity extends AppCompatActivity {
                 File signedApk = new File(downloadsDir, item.packageName + "_Clone" + currentCloneNum + ".apk");
                 if (signedApk.exists()) signedApk.delete();
 
-                // 1. Merge Base + All Split APKs & Patch AndroidManifest.xml
+                // 1. Merge Base + All Split APKs & Binary Patch AndroidManifest.xml
                 repackageAndPatchManifest(item.info, unsignedApk, item.packageName, newPkg);
 
                 // 2. Generate Fresh Random RSA-2048 Key & Certificate
@@ -461,7 +462,7 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "✅ Merged Clone saved in Downloads: " + signedApk.getName(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "✅ Clone APK saved in Downloads: " + signedApk.getName(), Toast.LENGTH_LONG).show();
                     promptInstallApk(signedApk);
                 });
 
@@ -486,7 +487,7 @@ public class MainActivity extends AppCompatActivity {
             // 1. Process Base APK first
             copyEntriesFromApk(new File(appInfo.sourceDir), zos, addedEntries, oldPkg, newPkg, true);
 
-            // 2. Process all Split APKs (Native libs arm64-v8a,armeabi-v7a, dpi assets, lang splits)
+            // 2. Process all Split APKs (Native libs arm64-v8a, armeabi-v7a, dpi assets, lang splits)
             if (appInfo.splitSourceDirs != null) {
                 for (String splitPath : appInfo.splitSourceDirs) {
                     copyEntriesFromApk(new File(splitPath), zos, addedEntries, oldPkg, newPkg, false);
@@ -509,7 +510,7 @@ public class MainActivity extends AppCompatActivity {
                     continue;
                 }
 
-                // Skip secondary manifests and resource tables from split APKs so they don't overwrite base.apk
+                // Skip secondary manifests and resource tables from split APKs
                 if (!isBaseApk && (name.equals("AndroidManifest.xml") || name.equals("resources.arsc"))) {
                     continue;
                 }
@@ -523,11 +524,11 @@ public class MainActivity extends AppCompatActivity {
                 byte[] data = readAllBytes(zipFile.getInputStream(entry));
 
                 if (isBaseApk && name.equals("AndroidManifest.xml")) {
-                    data = patchBinaryBytes(data, oldPkg, newPkg);
+                    data = patchBinaryManifest(data, oldPkg, newPkg);
                 }
 
                 ZipEntry newEntry = new ZipEntry(name);
-                // Force DEFLATED compression so native .so libraries work without requiring 4-byte zipalign
+                // Force DEFLATED compression; paired with extractNativeLibs=true in Binary XML
                 newEntry.setMethod(ZipEntry.DEFLATED);
 
                 zos.putNextEntry(newEntry);
@@ -537,17 +538,103 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private byte[] patchBinaryBytes(byte[] manifestBytes, String oldPkg, String newPkg) {
-        // 1. Patch Package Name (UTF-16LE & UTF-8)
-        replaceStringInBinaryXml(manifestBytes, oldPkg, newPkg);
+    /**
+     * Exact Binary XML (AXML) parser & patcher:
+     * 1. Replaces exact package string in StringPool (without corrupting class names like com.pkg.MainActivity)
+     * 2. Locates Resource IDs 0x010104ea (extractNativeLibs) and 0x01010591 (isSplitRequired)
+     *    and modifies their binary boolean values in the XML tree.
+     */
+    private byte[] patchBinaryManifest(byte[] data, String oldPkg, String newPkg) {
+        ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 
-        // 2. Neutralize Split APK requirements inside AndroidManifest.xml so standalone install succeeds
-        replaceStringInBinaryXml(manifestBytes, "isSplitRequired", "isSplitDisabldX");
-        replaceStringInBinaryXml(manifestBytes, "com.android.vending.splits.required", "com.android.vending.splits.disabled");
-        replaceStringInBinaryXml(manifestBytes, "com.android.vending.splits", "com.android.vending.splitX");
-        replaceStringInBinaryXml(manifestBytes, "extractNativeLibs", "extractNativeLibX");
+        // 1. Replace exact null-terminated UTF-16LE and UTF-8 strings so class names aren't broken
+        byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+        byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+        replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
 
-        return manifestBytes;
+        byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
+        byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
+        replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
+
+        // Also replace authorities/permissions prefixes if they use oldPkg + "." + permission
+        replaceStringInBinaryXml(data, "com.android.vending.splits.required", "com.android.vending.splits.disabled");
+        replaceStringInBinaryXml(data, "com.android.vending.splits", "com.android.vending.splitX");
+
+        // 2. Parse AXML Chunks to patch Resource IDs for extractNativeLibs & isSplitRequired
+        try {
+            int fileSize = buf.getInt(4);
+            int offset = 8;
+
+            int extractNativeLibsIndex = -1;
+            int isSplitRequiredIndex = -1;
+            int requiredSplitTypesIndex = -1;
+            int splitTypesIndex = -1;
+
+            while (offset + 8 <= fileSize && offset + 8 <= data.length) {
+                int chunkType = buf.getShort(offset) & 0xFFFF;
+                int headerSize = buf.getShort(offset + 2) & 0xFFFF;
+                int chunkSize = buf.getInt(offset + 4);
+                if (chunkSize <= 0) break;
+
+                // RES_XML_RESOURCE_MAP_TYPE = 0x0180
+                if (chunkType == 0x0180) {
+                    int count = (chunkSize - headerSize) / 4;
+                    for (int i = 0; i < count; i++) {
+                        int resId = buf.getInt(offset + headerSize + (i * 4));
+                        if (resId == 0x010104ea) { // android:extractNativeLibs
+                            extractNativeLibsIndex = i;
+                        } else if (resId == 0x01010591) { // android:isSplitRequired
+                            isSplitRequiredIndex = i;
+                        } else if (resId == 0x0101064e) { // android:requiredSplitTypes
+                            requiredSplitTypesIndex = i;
+                        } else if (resId == 0x0101064f) { // android:splitTypes
+                            splitTypesIndex = i;
+                        }
+                    }
+                }
+                // RES_XML_START_ELEMENT_TYPE = 0x0102
+                else if (chunkType == 0x0102) {
+                    int attrStart = buf.getShort(offset + 20) & 0xFFFF;
+                    int attrSize = buf.getShort(offset + 22) & 0xFFFF;
+                    int attrCount = buf.getShort(offset + 24) & 0xFFFF;
+                    int attrsBase = offset + 16 + attrStart;
+
+                    for (int i = 0; i < attrCount; i++) {
+                        int attrOffset = attrsBase + (i * attrSize);
+                        if (attrOffset + 20 > data.length) break;
+
+                        int nameIdx = buf.getInt(attrOffset + 4);
+
+                        // Force android:extractNativeLibs = true (0xFFFFFFFF)
+                        if (nameIdx == extractNativeLibsIndex && extractNativeLibsIndex != -1) {
+                            buf.putInt(attrOffset + 8, -1); // rawValue = -1
+                            buf.putShort(attrOffset + 12, (short) 8); // size = 8
+                            buf.put(attrOffset + 14, (byte) 0);
+                            buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
+                            buf.putInt(attrOffset + 16, -1); // true
+                        }
+                        // Force android:isSplitRequired = false (0)
+                        else if (nameIdx == isSplitRequiredIndex && isSplitRequiredIndex != -1) {
+                            buf.putInt(attrOffset + 8, -1); // rawValue = -1
+                            buf.putShort(attrOffset + 12, (short) 8);
+                            buf.put(attrOffset + 14, (byte) 0);
+                            buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
+                            buf.putInt(attrOffset + 16, 0); // false
+                        }
+                        // Neutralize requiredSplitTypes & splitTypes
+                        else if ((nameIdx == requiredSplitTypesIndex && requiredSplitTypesIndex != -1) ||
+                                 (nameIdx == splitTypesIndex && splitTypesIndex != -1)) {
+                            buf.putInt(attrOffset + 4, -1); // Invalidate attribute name index
+                        }
+                    }
+                }
+
+                offset += chunkSize;
+            }
+        } catch (Exception ignored) {
+        }
+
+        return data;
     }
 
     private void replaceStringInBinaryXml(byte[] manifestBytes, String oldStr, String newStr) {
@@ -590,7 +677,7 @@ public class MainActivity extends AppCompatActivity {
     private void promptInstallApk(File apkFile) {
         new AlertDialog.Builder(this)
                 .setTitle("✅ Standalone Merged Clone Ready!")
-                .setMessage("All Split APKs have been merged into a single standalone APK and signed:\n\n📄 " + apkFile.getName() + "\n\nOpen your File Manager -> Downloads and tap the file to install it!")
+                .setMessage("All Split APKs have been merged and native libraries unlocked:\n\n📄 " + apkFile.getName() + "\n\nOpen your File Manager -> Downloads and tap the file to install it!")
                 .setPositiveButton("Got It", null)
                 .show();
     }
