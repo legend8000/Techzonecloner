@@ -59,6 +59,7 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.UUID;
 import java.util.zip.CRC32;
+import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -97,14 +98,14 @@ public class MainActivity extends AppCompatActivity {
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone APK Re-Cloner v3.0");
+        title.setText("⚡ TechZone APK Re-Cloner v3.1");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Native Split-APK Session Installer + Exact Error Debugger");
+        statusBanner.setText("NativeLibs res=-2 Fix + Split-APK Session Installer");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -299,7 +300,7 @@ public class MainActivity extends AppCompatActivity {
                 badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
                 badge.setTextColor(Color.parseColor("#10B981"));
             } else {
-                badge.setText(item.isSplitApk ? "⚡ Split Bundle (Session Installer Ready)" : "○ Ready to Build Standalone APK");
+                badge.setText(item.isSplitApk ? "⚡ Split Bundle (PageAlign & NativeLibs Fixed)" : "○ Ready to Build Standalone APK");
                 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
             }
             badge.setTextSize(11);
@@ -389,7 +390,7 @@ public class MainActivity extends AppCompatActivity {
             if (!getPackageManager().canRequestPackageInstalls()) {
                 new AlertDialog.Builder(this)
                         .setTitle("⚠️ Permission Needed")
-                        .setMessage("Please enable 'Allow from this source' so TechZone Cloner can install Split APKs directly and show exact system logs.")
+                        .setMessage("Please enable 'Allow from this source' so TechZone Cloner can install Split APKs directly.")
                         .setPositiveButton("Enable", (d, w) -> {
                             Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                     Uri.parse("package:" + getPackageName()));
@@ -429,7 +430,7 @@ public class MainActivity extends AppCompatActivity {
         progressLayout.addView(pb);
 
         TextView msg = new TextView(this);
-        msg.setText("\nPatching Base + Split APKs & Signing with Unified Key...\nPlease wait...");
+        msg.setText("\nAligning Native Libraries (.so) & Signing Split APKs...\nPlease wait...");
         msg.setTextColor(Color.WHITE);
         msg.setGravity(Gravity.CENTER);
         progressLayout.addView(msg);
@@ -443,7 +444,6 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             List<File> signedApksToInstall = new ArrayList<>();
             try {
-                // 1. Generate Unified RSA-2048 Key & Certificate for all splits in this bundle
                 KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
                 kpg.initialize(2048);
                 KeyPair kp = kpg.generateKeyPair();
@@ -461,7 +461,6 @@ public class MainActivity extends AppCompatActivity {
                 ApkSigner.SignerConfig signerConfig = new ApkSigner.SignerConfig.Builder(
                         "CLONE_KEY", kp.getPrivate(), Collections.singletonList(cert)).build();
 
-                // Gather all APK files (Base + Splits)
                 List<File> sourceApks = new ArrayList<>();
                 sourceApks.add(new File(item.info.sourceDir));
                 if (item.info.splitSourceDirs != null) {
@@ -470,16 +469,14 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                // 2. Patch & Sign each APK individually (Preserves exact STORED 4-byte alignment of .so and .arsc!)
                 for (int i = 0; i < sourceApks.size(); i++) {
                     File src = sourceApks.get(i);
-                    boolean isBase = (i == 0);
                     File unsignedTemp = new File(getCacheDir(), "unsigned_part_" + i + ".apk");
                     File signedPart = new File(getCacheDir(), "signed_part_" + i + ".apk");
                     if (unsignedTemp.exists()) unsignedTemp.delete();
                     if (signedPart.exists()) signedPart.delete();
 
-                    repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, isBase);
+                    repackageSingleApk(src, unsignedTemp, item.packageName, newPkg);
 
                     new ApkSigner.Builder(Collections.singletonList(signerConfig))
                             .setInputApk(unsignedTemp)
@@ -494,7 +491,6 @@ public class MainActivity extends AppCompatActivity {
                     signedApksToInstall.add(signedPart);
                 }
 
-                // Also copy Base APK to Downloads if it's a single APK
                 if (signedApksToInstall.size() == 1) {
                     File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
                     if (!downloadsDir.exists()) downloadsDir.mkdirs();
@@ -582,7 +578,6 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "🎉 Clone Installed Successfully!", Toast.LENGTH_LONG).show();
                     adapter.notifyDataSetChanged();
                 } else {
-                    // THIS WILL SHOW US THE EXACT ANDROID SYSTEM REASON IF IT FAILS!
                     new AlertDialog.Builder(this)
                             .setTitle("❌ Exact System Install Error")
                             .setMessage("Status Code: " + status + "\n\nExact Reason:\n" + statusMsg)
@@ -593,9 +588,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, boolean isBase) throws Exception {
+    private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg) throws Exception {
         try (ZipFile zipFile = new ZipFile(srcApk);
              ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(dstApk))) {
+
+            // Use standard compression level for DEFLATED entries
+            zos.setLevel(Deflater.DEFAULT_COMPRESSION);
 
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
 
@@ -614,11 +612,17 @@ public class MainActivity extends AppCompatActivity {
                 byte[] data = readAllBytes(zipFile.getInputStream(entry));
 
                 if (name.equals("AndroidManifest.xml")) {
-                    data = patchAxmlManifestSafely(data, oldPkg, newPkg, isBase);
+                    data = patchAxmlManifestSafely(data, oldPkg, newPkg);
                 }
 
                 ZipEntry newEntry = new ZipEntry(name);
-                if (entry.getMethod() == ZipEntry.STORED) {
+
+                // FIX FOR res=-2 (Failed to extract native libraries):
+                // Always compress (.so) native libraries with DEFLATED and set extractNativeLibs=true in ALL manifests!
+                // Never use unaligned STORED for .so files.
+                boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
+
+                if (!isNativeLib && entry.getMethod() == ZipEntry.STORED) {
                     newEntry.setMethod(ZipEntry.STORED);
                     newEntry.setSize(data.length);
                     newEntry.setCompressedSize(data.length);
@@ -637,21 +641,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Parses the AXML String Pool properly so we ONLY rename:
-     * 1. The exact package name string ("com.et3arraf.Et3arrafApp")
-     * 2. Provider authorities & permissions that start with "com.et3arraf.Et3arrafApp."
-     *    WITHOUT renaming Java class names (like com.et3arraf.Et3arrafApp.MainActivity)!
-     * 3. Neutralizes android:sharedUserId if present (which causes incompatible phone error).
+     * Patches BOTH Base APK and Split APKs:
+     * 1. Forces extractNativeLibs=true (0x010104ea) in Base AND Split manifests so res=-2 never happens!
+     * 2. Renames exact package name & provider authorities without breaking Java class paths.
      */
-    private byte[] patchAxmlManifestSafely(byte[] data, String oldPkg, String newPkg, boolean isBase) {
+    private byte[] patchAxmlManifestSafely(byte[] data, String oldPkg, String newPkg) {
         try {
             ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 
-            // Find StringPool Chunk (0x0001) and ResourceMap Chunk (0x0180)
             int offset = 8;
             int fileSize = buf.getInt(4);
 
-            // First: Replace exact package string (null-terminated)
+            // 1. Replace exact package string (null-terminated) in Base & Splits
             byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
@@ -660,17 +661,13 @@ public class MainActivity extends AppCompatActivity {
             byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
 
-            if (!isBase) {
-                return data;
-            }
-
-            // In Base APK: Find Resource IDs for authorities (0x01010018) and sharedUserId (0x0101000b)
             int authoritiesResIdx = -1;
             int sharedUserIdResIdx = -1;
             int extractNativeLibsIdx = -1;
 
             int stringPoolOffset = -1;
 
+            // 2. Scan chunks in BOTH Base and Split manifests!
             while (offset + 8 <= fileSize && offset + 8 <= data.length) {
                 int chunkType = buf.getShort(offset) & 0xFFFF;
                 int headerSize = buf.getShort(offset + 2) & 0xFFFF;
@@ -700,28 +697,28 @@ public class MainActivity extends AppCompatActivity {
                         int nameIdx = buf.getInt(attrOffset + 4);
                         int rawValueIdx = buf.getInt(attrOffset + 8);
 
-                        // If attribute is android:authorities, patch its string in StringPool
+                        // Patch android:authorities
                         if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && rawValueIdx >= 0 && stringPoolOffset != -1) {
                             patchSpecificStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
                         }
-                        // If attribute is android:sharedUserId, neutralize it so it doesn't conflict with original app
+                        // Neutralize android:sharedUserId
                         else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
                             buf.putInt(attrOffset + 4, -1);
                         }
-                        // Force extractNativeLibs = true (0xFFFFFFFF)
+                        // Force android:extractNativeLibs = true (0xFFFFFFFF) in Base AND Split APKs!
                         else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
                             buf.putInt(attrOffset + 8, -1);
                             buf.putShort(attrOffset + 12, (short) 8);
                             buf.put(attrOffset + 14, (byte) 0);
-                            buf.put(attrOffset + 15, (byte) 0x12);
-                            buf.putInt(attrOffset + 16, -1);
+                            buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
+                            buf.putInt(attrOffset + 16, -1); // true
                         }
                     }
                 }
                 offset += chunkSize;
             }
 
-            // Also patch permission names that use oldPkg.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+            // Patch custom permissions so they don't conflict with original app
             replaceStringInBinaryXml(data, oldPkg + ".DYNAMIC_RECEIVER", newPkg + ".DYNAMIC_RECEIVER");
             replaceStringInBinaryXml(data, oldPkg + ".permission.", newPkg + ".permission.");
 
