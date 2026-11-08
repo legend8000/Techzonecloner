@@ -76,7 +76,7 @@ Drawable icon;
 boolean isSplitApk;
 }
 
-// كلاس مساعد لحساب عدد البايتات المكتوبة بدقة من أجل محاذاة الـ Zip (Zipalign 4KB)
+// كلاس لحساب موقع كل بايت بدقة متناهية لمحاذاة الـ ZIP بدون أي انحراف
 private static class CountingOutputStream extends FilterOutputStream {
 long count = 0;
 
@@ -121,14 +121,14 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone APK Re-Cloner v3.2");
+title.setText("⚡ TechZone APK Re-Cloner v3.3");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("4KB Page-Aligned NativeLibs + Split-APK Session Installer");
+statusBanner.setText("Exact 16KB ZipAlign (No Timestamp Shift) + Split Installer");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
 statusBanner.setTextSize(12);
 statusBanner.setPadding(0, 8, 0, 20);
@@ -323,7 +323,7 @@ if (installed) {
 badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "⚡ Split Bundle (4KB Aligned & STORED)" : "○ Ready to Build Standalone APK");
+badge.setText(item.isSplitApk ? "⚡ Split Bundle (Exact 16KB Aligned)" : "○ Ready to Build Standalone APK");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -453,7 +453,7 @@ ProgressBar pb = new ProgressBar(this);
 progressLayout.addView(pb);
 
 TextView msg = new TextView(this);
-msg.setText("\nAligning Native Libraries (.so) to 4KB & Signing Split APKs...\nPlease wait...");
+msg.setText("\nAligning Native Libraries (.so) to 16KB & Signing Split APKs...\nPlease wait...");
 msg.setTextColor(Color.WHITE);
 msg.setGravity(Gravity.CENTER);
 progressLayout.addView(msg);
@@ -639,14 +639,14 @@ if (name.equals("AndroidManifest.xml")) {
 data = patchAxmlManifestSafely(data, oldPkg, newPkg);
 }
 
+// تنبيه هام جداً: لا تستدعِ newEntry.setTime() نهائياً!
+// استدعاء setTime في أندرويد يجعل ZipOutputStream يحقن 5 إلى 9 بايتات مخفية (Extended Timestamp 0x5455) مما يفسد المحاذاة!
 ZipEntry newEntry = new ZipEntry(name);
-// تصفير الوقت لتجنب إضافة Extended Timestamp تلقائياً من أندرويد مما قد يخل بحساب الـ Offset
-newEntry.setTime(0);
 
 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
 boolean isArsc = name.equals("resources.arsc");
 
-// 3. ملفات الـ .so والـ resources.arsc والملفات المخزنة أصلاً كـ STORED يجب أن تظل STORED ومحاذاة
+// 3. تخزين ملفات .so و resources.arsc كـ STORED مع محاذاة دقيقة 16KB بدون أي إزاحة
 if (isNativeLib || isArsc || entry.getMethod() == ZipEntry.STORED) {
 newEntry.setMethod(ZipEntry.STORED);
 newEntry.setSize(data.length);
@@ -655,11 +655,11 @@ CRC32 crc = new CRC32();
 crc.update(data);
 newEntry.setCrc(crc.getValue());
 
-// محاذاة 4096 بايت لملفات الـ .so و 4 بايت لملف resources.arsc وباقي الملفات غير المضغوطة
-int align = isNativeLib ? 4096 : 4;
+// محاذاة 16384 بايت (16KB) لملفات الـ .so (تقبل القسمة على 4096 و 16384 معاً) و 4 بايت لباقي الملفات
+int align = isNativeLib ? 16384 : 4;
 byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
 
-// حجم الـ Local File Header الثابت في ملفات الـ ZIP هو 30 بايت + طول اسم الملف
+// الآن بدون setTime، حجم الـ Header هو بالضبط 30 بايت + طول الاسم بدون أي بايتات مخفية
 long dataStartOffset = cos.count + 30 + nameBytes.length;
 int padding = (int) ((align - (dataStartOffset % align)) % align);
 
@@ -673,7 +673,7 @@ newEntry.setMethod(ZipEntry.DEFLATED);
 zos.putNextEntry(newEntry);
 zos.write(data);
 zos.closeEntry();
-zos.flush(); // مهم جداً لتحديث عداد البايتات cos.count فوراً قبل الملف التالي
+zos.flush();
 }
 }
 }
@@ -738,13 +738,13 @@ patchSpecificStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newP
 else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
 buf.putInt(attrOffset + 4, -1);
 }
-// Force android:extractNativeLibs = false (0) or keep valid boolean aligned with STORED 4KB
+// Force android:extractNativeLibs = true (-1) while keeping .so files STORED & 16KB aligned
 else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
 buf.putInt(attrOffset + 8, -1);
 buf.putShort(attrOffset + 12, (short) 8);
 buf.put(attrOffset + 14, (byte) 0);
 buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
-buf.putInt(attrOffset + 16, 0); // false (matches 4KB aligned STORED .so files)
+buf.putInt(attrOffset + 16, -1); // true (works with both STORED and DEFLATED)
 }
 }
 }
