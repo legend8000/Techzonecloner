@@ -1,15 +1,19 @@
 package com.techzone.cloner;
 
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -36,8 +40,10 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -50,10 +56,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -86,21 +91,20 @@ public class MainActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.parseColor("#0F172A"));
         root.setPadding(28, 36, 28, 16);
 
-        // Header Card
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone APK Re-Cloner v2.2");
+        title.setText("⚡ TechZone APK Re-Cloner v3.0");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("True Binary AXML Patcher + Split APK Merger");
+        statusBanner.setText("Native Split-APK Session Installer + Exact Error Debugger");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -147,7 +151,6 @@ public class MainActivity extends AppCompatActivity {
         header.addView(profileRow);
         root.addView(header);
 
-        // Search Box
         EditText searchBox = new EditText(this);
         searchBox.setHint("🔍 Search apps to clone...");
         searchBox.setHintTextColor(Color.parseColor("#64748B"));
@@ -293,10 +296,10 @@ public class MainActivity extends AppCompatActivity {
 
             TextView badge = new TextView(MainActivity.this);
             if (installed) {
-                badge.setText("✔ Standalone Clone #" + currentCloneNum + " Installed on Phone");
+                badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
                 badge.setTextColor(Color.parseColor("#10B981"));
             } else {
-                badge.setText(item.isSplitApk ? "⚡ Split APK (Binary Fix Ready)" : "○ Ready to Build Standalone APK");
+                badge.setText(item.isSplitApk ? "⚡ Split Bundle (Session Installer Ready)" : "○ Ready to Build Standalone APK");
                 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
             }
             badge.setTextSize(11);
@@ -336,11 +339,12 @@ public class MainActivity extends AppCompatActivity {
         topRow.addView(title);
         panel.addView(topRow);
 
+        int splitCount = (item.info.splitSourceDirs != null) ? item.info.splitSourceDirs.length : 0;
+
         TextView infoBox = new TextView(this);
         infoBox.setText("📦 New Package: " + targetClonePkg +
-                "\n🧩 Split Merger: " + (item.isSplitApk ? "Merging all splits + Fixing NativeLibs ID" : "Standard Single APK") +
-                "\n🔑 Identity: Unique Signing Key -> New Android ID" +
-                "\n📁 Output: Saved in Downloads folder");
+                "\n🧩 Mode: " + (item.isSplitApk ? "Multi-APK Split Session (" + (splitCount + 1) + " APKs)" : "Single APK") +
+                "\n🔑 Identity: Unique Signing Key -> New Android ID");
         infoBox.setTextColor(Color.parseColor("#38BDF8"));
         infoBox.setTextSize(12);
         infoBox.setBackground(createRoundedBg("#1E293B", 18, "#334155", 2));
@@ -352,10 +356,10 @@ public class MainActivity extends AppCompatActivity {
 
         AlertDialog dialog = new AlertDialog.Builder(this).setView(panel).create();
 
-        Button btnBuild = createActionButton("🔨 1. Build & Merge Standalone Clone APK", "#10B981");
+        Button btnBuild = createActionButton("🔨 1. Build & Direct-Install Clone", "#10B981");
         btnBuild.setOnClickListener(v -> {
             dialog.dismiss();
-            buildStandaloneCloneApk(item, targetClonePkg);
+            checkInstallPermissionAndBuild(item, targetClonePkg);
         });
         panel.addView(btnBuild);
 
@@ -380,6 +384,25 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
+    private void checkInstallPermissionAndBuild(AppItem item, String targetClonePkg) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                new AlertDialog.Builder(this)
+                        .setTitle("⚠️ Permission Needed")
+                        .setMessage("Please enable 'Allow from this source' so TechZone Cloner can install Split APKs directly and show exact system logs.")
+                        .setPositiveButton("Enable", (d, w) -> {
+                            Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                return;
+            }
+        }
+        buildAndInstallCloneBundle(item, targetClonePkg);
+    }
+
     private Button createActionButton(String text, String colorHex) {
         Button b = new Button(this);
         b.setText(text);
@@ -395,7 +418,7 @@ public class MainActivity extends AppCompatActivity {
         return b;
     }
 
-    private void buildStandaloneCloneApk(AppItem item, String newPkg) {
+    private void buildAndInstallCloneBundle(AppItem item, String newPkg) {
         LinearLayout progressLayout = new LinearLayout(this);
         progressLayout.setOrientation(LinearLayout.VERTICAL);
         progressLayout.setGravity(Gravity.CENTER);
@@ -406,7 +429,7 @@ public class MainActivity extends AppCompatActivity {
         progressLayout.addView(pb);
 
         TextView msg = new TextView(this);
-        msg.setText("\nMerging Split APKs & Patching Binary Resource IDs...\nPlease wait (15-30 seconds)...");
+        msg.setText("\nPatching Base + Split APKs & Signing with Unified Key...\nPlease wait...");
         msg.setTextColor(Color.WHITE);
         msg.setGravity(Gravity.CENTER);
         progressLayout.addView(msg);
@@ -418,19 +441,9 @@ public class MainActivity extends AppCompatActivity {
         progressDialog.show();
 
         new Thread(() -> {
+            List<File> signedApksToInstall = new ArrayList<>();
             try {
-                File unsignedApk = new File(getCacheDir(), "unsigned_clone.apk");
-                if (unsignedApk.exists()) unsignedApk.delete();
-
-                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                if (!downloadsDir.exists()) downloadsDir.mkdirs();
-                File signedApk = new File(downloadsDir, item.packageName + "_Clone" + currentCloneNum + ".apk");
-                if (signedApk.exists()) signedApk.delete();
-
-                // 1. Merge Base + All Split APKs & Binary Patch AndroidManifest.xml
-                repackageAndPatchManifest(item.info, unsignedApk, item.packageName, newPkg);
-
-                // 2. Generate Fresh Random RSA-2048 Key & Certificate
+                // 1. Generate Unified RSA-2048 Key & Certificate for all splits in this bundle
                 KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
                 kpg.initialize(2048);
                 KeyPair kp = kpg.generateKeyPair();
@@ -445,25 +458,53 @@ public class MainActivity extends AppCompatActivity {
                 ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(kp.getPrivate());
                 X509Certificate cert = new JcaX509CertificateConverter().getCertificate(certBuilder.build(signer));
 
-                // 3. Sign APK with V1 + V2 + V3 Schemes
                 ApkSigner.SignerConfig signerConfig = new ApkSigner.SignerConfig.Builder(
                         "CLONE_KEY", kp.getPrivate(), Collections.singletonList(cert)).build();
 
-                new ApkSigner.Builder(Collections.singletonList(signerConfig))
-                        .setInputApk(unsignedApk)
-                        .setOutputApk(signedApk)
-                        .setV1SigningEnabled(true)
-                        .setV2SigningEnabled(true)
-                        .setV3SigningEnabled(true)
-                        .build()
-                        .sign();
+                // Gather all APK files (Base + Splits)
+                List<File> sourceApks = new ArrayList<>();
+                sourceApks.add(new File(item.info.sourceDir));
+                if (item.info.splitSourceDirs != null) {
+                    for (String split : item.info.splitSourceDirs) {
+                        sourceApks.add(new File(split));
+                    }
+                }
 
-                unsignedApk.delete();
+                // 2. Patch & Sign each APK individually (Preserves exact STORED 4-byte alignment of .so and .arsc!)
+                for (int i = 0; i < sourceApks.size(); i++) {
+                    File src = sourceApks.get(i);
+                    boolean isBase = (i == 0);
+                    File unsignedTemp = new File(getCacheDir(), "unsigned_part_" + i + ".apk");
+                    File signedPart = new File(getCacheDir(), "signed_part_" + i + ".apk");
+                    if (unsignedTemp.exists()) unsignedTemp.delete();
+                    if (signedPart.exists()) signedPart.delete();
+
+                    repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, isBase);
+
+                    new ApkSigner.Builder(Collections.singletonList(signerConfig))
+                            .setInputApk(unsignedTemp)
+                            .setOutputApk(signedPart)
+                            .setV1SigningEnabled(true)
+                            .setV2SigningEnabled(true)
+                            .setV3SigningEnabled(true)
+                            .build()
+                            .sign();
+
+                    unsignedTemp.delete();
+                    signedApksToInstall.add(signedPart);
+                }
+
+                // Also copy Base APK to Downloads if it's a single APK
+                if (signedApksToInstall.size() == 1) {
+                    File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloadsDir.exists()) downloadsDir.mkdirs();
+                    File outDownload = new File(downloadsDir, item.packageName + "_Clone" + currentCloneNum + ".apk");
+                    copyFile(signedApksToInstall.get(0), outDownload);
+                }
 
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "✅ Clone APK saved in Downloads: " + signedApk.getName(), Toast.LENGTH_LONG).show();
-                    promptInstallApk(signedApk);
+                    installSplitApkSession(signedApksToInstall);
                 });
 
             } catch (Exception e) {
@@ -471,7 +512,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     new AlertDialog.Builder(this)
-                            .setTitle("Clone Error")
+                            .setTitle("Build Error")
                             .setMessage("Failed: " + e.getMessage())
                             .setPositiveButton("OK", null)
                             .show();
@@ -480,56 +521,113 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    private void repackageAndPatchManifest(ApplicationInfo appInfo, File dstApk, String oldPkg, String newPkg) throws Exception {
-        Set<String> addedEntries = new HashSet<>();
+    private void installSplitApkSession(List<File> apkFiles) {
+        try {
+            PackageInstaller packageInstaller = getPackageManager().getPackageInstaller();
+            PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
+                    PackageInstaller.SessionParams.MODE_FULL_INSTALL);
 
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(dstApk))) {
-            // 1. Process Base APK first
-            copyEntriesFromApk(new File(appInfo.sourceDir), zos, addedEntries, oldPkg, newPkg, true);
+            int sessionId = packageInstaller.createSession(params);
+            PackageInstaller.Session session = packageInstaller.openSession(sessionId);
 
-            // 2. Process all Split APKs (Native libs arm64-v8a, armeabi-v7a, dpi assets, lang splits)
-            if (appInfo.splitSourceDirs != null) {
-                for (String splitPath : appInfo.splitSourceDirs) {
-                    copyEntriesFromApk(new File(splitPath), zos, addedEntries, oldPkg, newPkg, false);
+            for (int i = 0; i < apkFiles.size(); i++) {
+                File apk = apkFiles.get(i);
+                try (OutputStream out = session.openWrite("split_" + i + ".apk", 0, apk.length());
+                     FileInputStream in = new FileInputStream(apk)) {
+                    byte[] buffer = new byte[16384];
+                    int len;
+                    while ((len = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, len);
+                    }
+                    session.fsync(out);
+                }
+            }
+
+            Intent callbackIntent = new Intent(this, MainActivity.class);
+            callbackIntent.setAction("ACTION_INSTALL_RESULT");
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flags |= PendingIntent.FLAG_MUTABLE;
+            }
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, sessionId, callbackIntent, flags);
+
+            session.commit(pendingIntent.getIntentSender());
+            session.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            new AlertDialog.Builder(this)
+                    .setTitle("Installer Error")
+                    .setMessage(e.getMessage())
+                    .setPositiveButton("OK", null)
+                    .show();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null && "ACTION_INSTALL_RESULT".equals(intent.getAction())) {
+            Bundle extras = intent.getExtras();
+            if (extras != null) {
+                int status = extras.getInt(PackageInstaller.EXTRA_STATUS);
+                String statusMsg = extras.getString(PackageInstaller.EXTRA_STATUS_MESSAGE);
+
+                if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    Intent confirmIntent = (Intent) extras.get(Intent.EXTRA_INTENT);
+                    if (confirmIntent != null) {
+                        startActivity(confirmIntent);
+                    }
+                } else if (status == PackageInstaller.STATUS_SUCCESS) {
+                    Toast.makeText(this, "🎉 Clone Installed Successfully!", Toast.LENGTH_LONG).show();
+                    adapter.notifyDataSetChanged();
+                } else {
+                    // THIS WILL SHOW US THE EXACT ANDROID SYSTEM REASON IF IT FAILS!
+                    new AlertDialog.Builder(this)
+                            .setTitle("❌ Exact System Install Error")
+                            .setMessage("Status Code: " + status + "\n\nExact Reason:\n" + statusMsg)
+                            .setPositiveButton("Copy / OK", null)
+                            .show();
                 }
             }
         }
     }
 
-    private void copyEntriesFromApk(File apkFile, ZipOutputStream zos, Set<String> addedEntries,
-                                    String oldPkg, String newPkg, boolean isBaseApk) throws Exception {
-        try (ZipFile zipFile = new ZipFile(apkFile)) {
+    private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, boolean isBase) throws Exception {
+        try (ZipFile zipFile = new ZipFile(srcApk);
+             ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(dstApk))) {
+
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
 
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
                 String name = entry.getName();
 
-                // Strip old signature files and stamp files
-                if (name.startsWith("META-INF/") || name.equals("stamp-cert-sha256")) {
+                // Strip old signatures
+                if (name.startsWith("META-INF/") && (name.endsWith(".SF") || name.endsWith(".RSA") || name.endsWith(".DSA") || name.equals("META-INF/MANIFEST.MF"))) {
                     continue;
                 }
-
-                // Skip secondary manifests and resource tables from split APKs
-                if (!isBaseApk && (name.equals("AndroidManifest.xml") || name.equals("resources.arsc"))) {
+                if (name.equals("stamp-cert-sha256")) {
                     continue;
                 }
-
-                // Avoid duplicate zip entry crash
-                if (addedEntries.contains(name)) {
-                    continue;
-                }
-                addedEntries.add(name);
 
                 byte[] data = readAllBytes(zipFile.getInputStream(entry));
 
-                if (isBaseApk && name.equals("AndroidManifest.xml")) {
-                    data = patchBinaryManifest(data, oldPkg, newPkg);
+                if (name.equals("AndroidManifest.xml")) {
+                    data = patchAxmlManifestSafely(data, oldPkg, newPkg, isBase);
                 }
 
                 ZipEntry newEntry = new ZipEntry(name);
-                // Force DEFLATED compression; paired with extractNativeLibs=true in Binary XML
-                newEntry.setMethod(ZipEntry.DEFLATED);
+                if (entry.getMethod() == ZipEntry.STORED) {
+                    newEntry.setMethod(ZipEntry.STORED);
+                    newEntry.setSize(data.length);
+                    newEntry.setCompressedSize(data.length);
+                    CRC32 crc = new CRC32();
+                    crc.update(data);
+                    newEntry.setCrc(crc.getValue());
+                } else {
+                    newEntry.setMethod(ZipEntry.DEFLATED);
+                }
 
                 zos.putNextEntry(newEntry);
                 zos.write(data);
@@ -539,36 +637,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Exact Binary XML (AXML) parser & patcher:
-     * 1. Replaces exact package string in StringPool (without corrupting class names like com.pkg.MainActivity)
-     * 2. Locates Resource IDs 0x010104ea (extractNativeLibs) and 0x01010591 (isSplitRequired)
-     *    and modifies their binary boolean values in the XML tree.
+     * Parses the AXML String Pool properly so we ONLY rename:
+     * 1. The exact package name string ("com.et3arraf.Et3arrafApp")
+     * 2. Provider authorities & permissions that start with "com.et3arraf.Et3arrafApp."
+     *    WITHOUT renaming Java class names (like com.et3arraf.Et3arrafApp.MainActivity)!
+     * 3. Neutralizes android:sharedUserId if present (which causes incompatible phone error).
      */
-    private byte[] patchBinaryManifest(byte[] data, String oldPkg, String newPkg) {
-        ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
-
-        // 1. Replace exact null-terminated UTF-16LE and UTF-8 strings so class names aren't broken
-        byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
-        byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
-        replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
-
-        byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
-        byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
-        replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
-
-        // Also replace authorities/permissions prefixes if they use oldPkg + "." + permission
-        replaceStringInBinaryXml(data, "com.android.vending.splits.required", "com.android.vending.splits.disabled");
-        replaceStringInBinaryXml(data, "com.android.vending.splits", "com.android.vending.splitX");
-
-        // 2. Parse AXML Chunks to patch Resource IDs for extractNativeLibs & isSplitRequired
+    private byte[] patchAxmlManifestSafely(byte[] data, String oldPkg, String newPkg, boolean isBase) {
         try {
-            int fileSize = buf.getInt(4);
-            int offset = 8;
+            ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 
-            int extractNativeLibsIndex = -1;
-            int isSplitRequiredIndex = -1;
-            int requiredSplitTypesIndex = -1;
-            int splitTypesIndex = -1;
+            // Find StringPool Chunk (0x0001) and ResourceMap Chunk (0x0180)
+            int offset = 8;
+            int fileSize = buf.getInt(4);
+
+            // First: Replace exact package string (null-terminated)
+            byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+            byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+            replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
+
+            byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
+            byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
+            replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
+
+            if (!isBase) {
+                return data;
+            }
+
+            // In Base APK: Find Resource IDs for authorities (0x01010018) and sharedUserId (0x0101000b)
+            int authoritiesResIdx = -1;
+            int sharedUserIdResIdx = -1;
+            int extractNativeLibsIdx = -1;
+
+            int stringPoolOffset = -1;
 
             while (offset + 8 <= fileSize && offset + 8 <= data.length) {
                 int chunkType = buf.getShort(offset) & 0xFFFF;
@@ -576,24 +677,17 @@ public class MainActivity extends AppCompatActivity {
                 int chunkSize = buf.getInt(offset + 4);
                 if (chunkSize <= 0) break;
 
-                // RES_XML_RESOURCE_MAP_TYPE = 0x0180
-                if (chunkType == 0x0180) {
+                if (chunkType == 0x0001) {
+                    stringPoolOffset = offset;
+                } else if (chunkType == 0x0180) {
                     int count = (chunkSize - headerSize) / 4;
                     for (int i = 0; i < count; i++) {
                         int resId = buf.getInt(offset + headerSize + (i * 4));
-                        if (resId == 0x010104ea) { // android:extractNativeLibs
-                            extractNativeLibsIndex = i;
-                        } else if (resId == 0x01010591) { // android:isSplitRequired
-                            isSplitRequiredIndex = i;
-                        } else if (resId == 0x0101064e) { // android:requiredSplitTypes
-                            requiredSplitTypesIndex = i;
-                        } else if (resId == 0x0101064f) { // android:splitTypes
-                            splitTypesIndex = i;
-                        }
+                        if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
+                        else if (resId == 0x0101000b) sharedUserIdResIdx = i; // android:sharedUserId
+                        else if (resId == 0x010104ea) extractNativeLibsIdx = i; // android:extractNativeLibs
                     }
-                }
-                // RES_XML_START_ELEMENT_TYPE = 0x0102
-                else if (chunkType == 0x0102) {
+                } else if (chunkType == 0x0102) { // START_ELEMENT
                     int attrStart = buf.getShort(offset + 20) & 0xFFFF;
                     int attrSize = buf.getShort(offset + 22) & 0xFFFF;
                     int attrCount = buf.getShort(offset + 24) & 0xFFFF;
@@ -604,37 +698,74 @@ public class MainActivity extends AppCompatActivity {
                         if (attrOffset + 20 > data.length) break;
 
                         int nameIdx = buf.getInt(attrOffset + 4);
+                        int rawValueIdx = buf.getInt(attrOffset + 8);
 
-                        // Force android:extractNativeLibs = true (0xFFFFFFFF)
-                        if (nameIdx == extractNativeLibsIndex && extractNativeLibsIndex != -1) {
-                            buf.putInt(attrOffset + 8, -1); // rawValue = -1
-                            buf.putShort(attrOffset + 12, (short) 8); // size = 8
-                            buf.put(attrOffset + 14, (byte) 0);
-                            buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
-                            buf.putInt(attrOffset + 16, -1); // true
+                        // If attribute is android:authorities, patch its string in StringPool
+                        if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && rawValueIdx >= 0 && stringPoolOffset != -1) {
+                            patchSpecificStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
                         }
-                        // Force android:isSplitRequired = false (0)
-                        else if (nameIdx == isSplitRequiredIndex && isSplitRequiredIndex != -1) {
-                            buf.putInt(attrOffset + 8, -1); // rawValue = -1
+                        // If attribute is android:sharedUserId, neutralize it so it doesn't conflict with original app
+                        else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
+                            buf.putInt(attrOffset + 4, -1);
+                        }
+                        // Force extractNativeLibs = true (0xFFFFFFFF)
+                        else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
+                            buf.putInt(attrOffset + 8, -1);
                             buf.putShort(attrOffset + 12, (short) 8);
                             buf.put(attrOffset + 14, (byte) 0);
-                            buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
-                            buf.putInt(attrOffset + 16, 0); // false
-                        }
-                        // Neutralize requiredSplitTypes & splitTypes
-                        else if ((nameIdx == requiredSplitTypesIndex && requiredSplitTypesIndex != -1) ||
-                                 (nameIdx == splitTypesIndex && splitTypesIndex != -1)) {
-                            buf.putInt(attrOffset + 4, -1); // Invalidate attribute name index
+                            buf.put(attrOffset + 15, (byte) 0x12);
+                            buf.putInt(attrOffset + 16, -1);
                         }
                     }
                 }
-
                 offset += chunkSize;
+            }
+
+            // Also patch permission names that use oldPkg.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+            replaceStringInBinaryXml(data, oldPkg + ".DYNAMIC_RECEIVER", newPkg + ".DYNAMIC_RECEIVER");
+            replaceStringInBinaryXml(data, oldPkg + ".permission.", newPkg + ".permission.");
+
+        } catch (Exception ignored) {
+        }
+        return data;
+    }
+
+    private void patchSpecificStringInPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex, String oldPkg, String newPkg) {
+        try {
+            int stringCount = buf.getInt(poolOffset + 8);
+            if (strIndex >= stringCount) return;
+
+            int flags = buf.getInt(poolOffset + 16);
+            boolean isUtf8 = (flags & (1 << 8)) != 0;
+            int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
+            int offsetTable = poolOffset + 28;
+            int strOffset = stringsStart + buf.getInt(offsetTable + (strIndex * 4));
+
+            if (isUtf8) {
+                int len1 = data[strOffset] & 0xFF;
+                int skip = ((len1 & 0x80) != 0) ? 2 : 1;
+                int len2 = data[strOffset + skip] & 0xFF;
+                int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
+                int actualStart = strOffset + skip + skip2;
+                int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
+
+                byte[] slice = new byte[byteLen];
+                System.arraycopy(data, actualStart, slice, 0, byteLen);
+                replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_8), newPkg.getBytes(StandardCharsets.UTF_8));
+                System.arraycopy(slice, 0, data, actualStart, byteLen);
+            } else {
+                int charLen = buf.getShort(strOffset) & 0xFFFF;
+                int skip = ((charLen & 0x8000) != 0) ? 4 : 2;
+                int actualStart = strOffset + skip;
+                int byteLen = charLen * 2;
+
+                byte[] slice = new byte[byteLen];
+                System.arraycopy(data, actualStart, slice, 0, byteLen);
+                replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_16LE), newPkg.getBytes(StandardCharsets.UTF_16LE));
+                System.arraycopy(slice, 0, data, actualStart, byteLen);
             }
         } catch (Exception ignored) {
         }
-
-        return data;
     }
 
     private void replaceStringInBinaryXml(byte[] manifestBytes, String oldStr, String newStr) {
@@ -666,19 +797,20 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void copyFile(File src, File dst) throws Exception {
+        try (InputStream in = new FileInputStream(src);
+             OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[16384];
+            int len;
+            while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+        }
+    }
+
     private byte[] readAllBytes(InputStream is) throws Exception {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[16384];
         int len;
         while ((len = is.read(buf)) > 0) bos.write(buf, 0, len);
         return bos.toByteArray();
-    }
-
-    private void promptInstallApk(File apkFile) {
-        new AlertDialog.Builder(this)
-                .setTitle("✅ Standalone Merged Clone Ready!")
-                .setMessage("All Split APKs have been merged and native libraries unlocked:\n\n📄 " + apkFile.getName() + "\n\nOpen your File Manager -> Downloads and tap the file to install it!")
-                .setPositiveButton("Got It", null)
-                .show();
     }
 }
