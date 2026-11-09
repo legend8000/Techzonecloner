@@ -751,7 +751,6 @@ return dexData;
 }
 boolean changed = false;
 
-// 1. Sync all modified Provider Authorities & Custom Permissions (including Amazon preload permissions)
 for (String origEntry : modifiedAuthorities) {
 if (origEntry.contains(" -> ")) {
 String[] parts = origEntry.split(" -> ");
@@ -784,18 +783,14 @@ changed = true;
 }
 }
 
-// 2. Patch exact package name string in DEX (Bypasses Khattaba & Talabat self-package checks)
 if (replaceDexStringSortSafe(dexData, oldPkg, newPkg)) {
 changed = true;
 }
 
-// 3. Bypass Google Play Store / PairIP / PlayCore installer check (Talabat & Khattaba)
-// When the app checks if installer == "com.android.vending", or checks our cloner package
 if (replaceDexStringSortSafe(dexData, "com.Pairip.licensecheck", "com.Pairip.licensechecl")) {
 changed = true;
 }
 
-// 4. Device Identity Spoofing (Sort-Safe for Android 13 ART Verifier)
 char cDigit = (char) ('0' + (cloneNum % 10));
 String[] idCandidates = {
 "android_ic" + cDigit,
@@ -846,9 +841,10 @@ boolean isHermesBytecode = ((bundleData[0] & 0xFF) == 0xC6 &&
 (bundleData[3] & 0xFF) == 0x03);
 
 if (!isHermesBytecode) {
-// Plain JS bundle (Used by React Native apps like Khattaba)
-replaceBytesInPlace(bundleData, (""" + oldPkg + """).getBytes(StandardCharsets.UTF_8), (""" + newPkg + """).getBytes(StandardCharsets.UTF_8));
-replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
+char dblQuote = (char) 34;
+char sglQuote = (char) 39;
+replaceBytesInPlace(bundleData, (dblQuote + oldPkg + dblQuote).getBytes(StandardCharsets.UTF_8), (dblQuote + newPkg + dblQuote).getBytes(StandardCharsets.UTF_8));
+replaceBytesInPlace(bundleData, (sglQuote + oldPkg + sglQuote).getBytes(StandardCharsets.UTF_8), (sglQuote + newPkg + sglQuote).getBytes(StandardCharsets.UTF_8));
 }
 } catch (Exception ignored) {
 }
@@ -955,11 +951,6 @@ if (va != vb) return va - vb;
 return a.length - b.length;
 }
 
-/**
-* Safely patches ONLY the 256-byte ResTable_package header (chunk type 0x0200) inside resources.arsc
-* so resources.getIdentifier(..., "drawable", context.getPackageName()) finds Khattaba's splash image
-* without corrupting any string pools!
-*/
 private byte[] patchArscHeaderAndLabelSafely(byte[] arscData, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk) {
 try {
 if (arscData == null || arscData.length < 32) return arscData;
@@ -969,15 +960,14 @@ int type = buf.getShort(0) & 0xFFFF;
 int headerSize = buf.getShort(2) & 0xFFFF;
 int fileSize = buf.getInt(4);
 
-if (type == 0x0002 && headerSize >= 12) { // RES_TABLE_TYPE
+if (type == 0x0002 && headerSize >= 12) {
 int offset = headerSize;
 while (offset + 8 <= fileSize && offset + 8 <= arscData.length) {
 int chunkType = buf.getShort(offset) & 0xFFFF;
 int chunkSize = buf.getInt(offset + 4);
 if (chunkSize <= 0) break;
 
-if (chunkType == 0x0200 && offset + 268 <= arscData.length) { // RES_TABLE_PACKAGE_TYPE
-// Package name is a fixed 128-char (256-byte) UTF-16LE field starting at offset + 12
+if (chunkType == 0x0200 && offset + 268 <= arscData.length) {
 int namePos = offset + 12;
 StringBuilder sb = new StringBuilder();
 for (int c = 0; c < 128; c++) {
@@ -1045,10 +1035,10 @@ patchExactPackageAndProvidersInPool(data, buf, stringPoolOffset, oldPkg, newPkg,
 int count = (chunkSize - headerSize) / 4;
 for (int i = 0; i < count; i++) {
 int resId = buf.getInt(offset + headerSize + (i * 4));
-if (resId == 0x01010003) nameResIdx = i; // android:name
-else if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
-else if (resId == 0x0101000b) sharedUserIdResIdx = i; // android:sharedUserId
-else if (resId == 0x010104ea) extractNativeLibsIdx = i; // android:extractNativeLibs
+if (resId == 0x01010003) nameResIdx = i;
+else if (resId == 0x01010018) authoritiesResIdx = i;
+else if (resId == 0x0101000b) sharedUserIdResIdx = i;
+else if (resId == 0x010104ea) extractNativeLibsIdx = i;
 }
 } else if (chunkType == 0x0102) {
 int elemNameIdx = buf.getInt(offset + 20);
@@ -1069,17 +1059,14 @@ int nameIdx = buf.getInt(attrOffset + 4);
 int rawValueIdx = buf.getInt(attrOffset + 8);
 int typedValueIdx = buf.getInt(attrOffset + 16);
 
-// 1. Patch all Provider authorities
 if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && stringPoolOffset != -1) {
 if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg, outModifiedAuthorities);
 if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg, outModifiedAuthorities);
 }
-// 2. Patch ALL <permission android:name="..."> declarations (Fixes Amazon INSTALL_FAILED_DUPLICATE_PERMISSION!)
 else if (isPermissionDefTag && nameIdx == nameResIdx && nameResIdx != -1 && stringPoolOffset != -1) {
 if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg, outModifiedAuthorities);
 if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg, outModifiedAuthorities);
 }
-// 3. Disable Google Play / PairIP Split & License Requirement in <meta-data> (Fixes Talabat white popup!)
 else if (isMetaDataTag && nameIdx == nameResIdx && nameResIdx != -1 && stringPoolOffset != -1) {
 int strIdx = (rawValueIdx >= 0) ? rawValueIdx : typedValueIdx;
 String metaName = getStringFromPool(data, buf, stringPoolOffset, strIdx);
