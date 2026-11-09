@@ -122,14 +122,14 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone Pro APK Cloner v3.6");
+title.setText("⚡ TechZone Pro APK Cloner v3.7");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("Anti-Crash DEX Patcher + Custom Clone Label + 16KB Align");
+statusBanner.setText("Stealth Anti-Detect + PlayStore Spoof + ARSC Graphics Fix");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
 statusBanner.setTextSize(12);
 statusBanner.setPadding(0, 8, 0, 20);
@@ -140,7 +140,7 @@ profileRow.setOrientation(LinearLayout.HORIZONTAL);
 profileRow.setGravity(Gravity.CENTER_VERTICAL);
 
 TextView profLabel = new TextView(this);
-profLabel.setText("Clone Number:");
+profLabel.setText("Clone Identity Profile:");
 profLabel.setTextColor(Color.WHITE);
 profLabel.setTextSize(14);
 profLabel.setTypeface(null, Typeface.BOLD);
@@ -321,10 +321,10 @@ textCol.addView(pkgView);
 
 TextView badge = new TextView(MainActivity.this);
 if (installed) {
-badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
+badge.setText("✔ Clone #" + currentCloneNum + " Installed (Stealth Mode)");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "⚡ Split Bundle (Anti-Crash DEX + Custom Name)" : "○ Ready to Build Standalone APK");
+badge.setText(item.isSplitApk ? "🛡️ Split Bundle (Stealth + New Identity + Graphics Fix)" : "🛡️ Standalone (Stealth + New Identity)");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -383,11 +383,12 @@ panel.addView(customNameInput);
 int splitCount = (item.info.splitSourceDirs != null) ? item.info.splitSourceDirs.length : 0;
 
 TextView infoBox = new TextView(this);
-infoBox.setText("📦 New Package: " + targetClonePkg +
-"\n🧩 Mode: " + (item.isSplitApk ? "Multi-APK Split Session (" + (splitCount + 1) + " APKs)" : "Single APK") +
-"\n🛠️ Fix: DEX Authority Sync + Keep Original App working");
+infoBox.setText("📦 Package: " + targetClonePkg +
+"\n🕵️ Anti-Detect: Spoofs Google Play Installer + ReactNative Bundle" +
+"\n🆔 Identity: New Android_ID, Serial & Device Fingerprint (#" + currentCloneNum + ")" +
+"\n🎨 Graphics: Patched ARSC Resource Table (" + (splitCount + 1) + " APKs)");
 infoBox.setTextColor(Color.parseColor("#38BDF8"));
-infoBox.setTextSize(12);
+infoBox.setTextSize(11);
 infoBox.setBackground(createRoundedBg("#1E293B", 18, "#334155", 2));
 infoBox.setPadding(28, 24, 28, 24);
 LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -397,7 +398,7 @@ panel.addView(infoBox);
 
 AlertDialog dialog = new AlertDialog.Builder(this).setView(panel).create();
 
-Button btnBuild = createActionButton("🔨 1. Build & Direct-Install Clone", "#10B981");
+Button btnBuild = createActionButton("🔨 1. Build & Install Stealth Clone", "#10B981");
 btnBuild.setOnClickListener(v -> {
 String chosenName = customNameInput.getText().toString().trim();
 if (chosenName.isEmpty()) chosenName = item.label + " " + currentCloneNum;
@@ -443,7 +444,7 @@ startActivity(intent);
 return;
 }
 }
-buildAndInstallCloneBundle(item, targetClonePkg, customAppName);
+buildAndInstallCloneBundle(item, targetClonePkg, customAppName, currentCloneNum);
 }
 
 private Button createActionButton(String text, String colorHex) {
@@ -461,7 +462,7 @@ b.setPadding(24, 24, 24, 24);
 return b;
 }
 
-private void buildAndInstallCloneBundle(AppItem item, String newPkg, String customAppName) {
+private void buildAndInstallCloneBundle(AppItem item, String newPkg, String customAppName, int cloneNum) {
 LinearLayout progressLayout = new LinearLayout(this);
 progressLayout.setOrientation(LinearLayout.VERTICAL);
 progressLayout.setGravity(Gravity.CENTER);
@@ -472,7 +473,7 @@ ProgressBar pb = new ProgressBar(this);
 progressLayout.addView(pb);
 
 TextView msg = new TextView(this);
-msg.setText("\nPatching Manifest, DEX Authorities & Renaming to '" + customAppName + "'...\nPlease wait...");
+msg.setText("\nInjecting Stealth Identity #" + cloneNum + ", Fixing ARSC Drawables & Spoofing Play Store...\nPlease wait...");
 msg.setTextColor(Color.WHITE);
 msg.setGravity(Gravity.CENTER);
 progressLayout.addView(msg);
@@ -490,7 +491,7 @@ KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
 kpg.initialize(2048);
 KeyPair kp = kpg.generateKeyPair();
 
-X500Name issuer = new X500Name("CN=Device_" + UUID.randomUUID().toString().substring(0, 8) + ", O=TechZoneCloner");
+X500Name issuer = new X500Name("CN=GooglePlay_" + UUID.randomUUID().toString().substring(0, 8) + ", O=Android");
 BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
 Date notBefore = new Date(System.currentTimeMillis() - 86400000L);
 Date notAfter = new Date(System.currentTimeMillis() + 315360000000L);
@@ -519,7 +520,7 @@ if (unsignedTemp.exists()) unsignedTemp.delete();
 if (signedPart.exists()) signedPart.delete();
 
 boolean isBaseApk = (i == 0);
-repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, item.label, customAppName, isBaseApk);
+repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, item.label, customAppName, isBaseApk, cloneNum);
 
 new ApkSigner.Builder(Collections.singletonList(signerConfig))
 .setInputApk(unsignedTemp)
@@ -537,13 +538,13 @@ signedApksToInstall.add(signedPart);
 if (signedApksToInstall.size() == 1) {
 File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
 if (!downloadsDir.exists()) downloadsDir.mkdirs();
-File outDownload = new File(downloadsDir, item.packageName + "_Clone" + currentCloneNum + ".apk");
+File outDownload = new File(downloadsDir, item.packageName + "_Clone" + cloneNum + ".apk");
 copyFile(signedApksToInstall.get(0), outDownload);
 }
 
 runOnUiThread(() -> {
 progressDialog.dismiss();
-installSplitApkSession(signedApksToInstall);
+installSplitApkSession(signedApksToInstall, newPkg);
 });
 
 } catch (Exception e) {
@@ -560,11 +561,17 @@ new AlertDialog.Builder(this)
 }).start();
 }
 
-private void installSplitApkSession(List<File> apkFiles) {
+private void installSplitApkSession(List<File> apkFiles, String targetPkg) {
 try {
 PackageInstaller packageInstaller = getPackageManager().getPackageInstaller();
 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
 PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+
+params.setAppPackageName(targetPkg);
+try {
+params.setInstallerPackageName("com.android.vending");
+} catch (Exception ignored) {
+}
 
 int sessionId = packageInstaller.createSession(params);
 PackageInstaller.Session session = packageInstaller.openSession(sessionId);
@@ -618,7 +625,7 @@ if (confirmIntent != null) {
 startActivity(confirmIntent);
 }
 } else if (status == PackageInstaller.STATUS_SUCCESS) {
-Toast.makeText(this, "🎉 Clone Installed Successfully!", Toast.LENGTH_LONG).show();
+Toast.makeText(this, "🎉 Stealth Clone Installed Successfully!", Toast.LENGTH_LONG).show();
 adapter.notifyDataSetChanged();
 } else {
 new AlertDialog.Builder(this)
@@ -631,7 +638,7 @@ new AlertDialog.Builder(this)
 }
 }
 
-private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk) throws Exception {
+private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk, int cloneNum) throws Exception {
 try (ZipFile zipFile = new ZipFile(srcApk);
 CountingOutputStream cos = new CountingOutputStream(new FileOutputStream(dstApk));
 ZipOutputStream zos = new ZipOutputStream(cos)) {
@@ -665,9 +672,11 @@ data = patchedManifestData;
 } else {
 data = readAllBytes(zipFile.getInputStream(entry));
 if (name.equals("resources.arsc")) {
-data = patchArscAppLabel(data, origLabel, customLabel);
+data = patchArscPackageAndLabel(data, oldPkg, newPkg, origLabel, customLabel);
 } else if (name.endsWith(".dex")) {
-data = patchDexAuthoritiesSafely(data, oldPkg, newPkg, modifiedAuthorities);
+data = patchDexStealthAndAuthorities(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
+} else if (name.endsWith(".bundle") || name.startsWith("assets/")) {
+data = patchReactNativeBundleSafely(data, oldPkg, newPkg, cloneNum);
 }
 }
 
@@ -705,11 +714,12 @@ zos.flush();
 }
 }
 
-private byte[] patchDexAuthoritiesSafely(byte[] dexData, String oldPkg, String newPkg, List<String> modifiedAuthorities) {
+private byte[] patchDexStealthAndAuthorities(byte[] dexData, String oldPkg, String newPkg, List<String> modifiedAuthorities, int cloneNum) {
 try {
 if (dexData.length < 112) return dexData;
 boolean changed = false;
 
+// 1. Sync Provider Authorities
 for (String origAuth : modifiedAuthorities) {
 if (origAuth.contains(oldPkg)) {
 String newAuth = origAuth.replace(oldPkg, newPkg);
@@ -737,6 +747,50 @@ changed = true;
 }
 }
 
+// 2. Bypass Package Name Anti-Clone Check (Exact string with null terminator in DEX string pool)
+// Does NOT affect class descriptors like Lcom/et3arraf/Et3arrafApp/MainActivity; because those end with '/' or ';'
+byte[] exactOldPkgDex = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
+byte[] exactNewPkgDex = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
+if (replaceBytesInPlace(dexData, exactOldPkgDex, exactNewPkgDex)) {
+changed = true;
+}
+
+// 3. Bypass Installer Package Verification (Spoof our cloner package name as com.android.vending)
+// "com.techzone.cloner" is 19 chars, "com.android.vending" is also 19 chars!
+byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
+byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
+if (replaceBytesInPlace(dexData, clonerPkgBytes, playStoreBytes)) {
+changed = true;
+}
+
+// 4. Device Identity Spoofing (New Android ID, Advertising ID, Serial & Hardware Profile per Clone)
+String cNumStr = String.valueOf(cloneNum % 10);
+// "android_id\0" (10 chars + null) -> "tz_aid_c0X\0" (10 chars + null)
+if (replaceBytesInPlace(dexData,
+("android_id\0").getBytes(StandardCharsets.UTF_8),
+("tz_aid_c0" + cNumStr + "\0").getBytes(StandardCharsets.UTF_8))) {
+changed = true;
+}
+// "advertising_id\0" (14 chars + null) -> "tz_adid_cln_0X\0" (14 chars + null)
+if (replaceBytesInPlace(dexData,
+("advertising_id\0").getBytes(StandardCharsets.UTF_8),
+("tz_adid_cln_0" + cNumStr + "\0").getBytes(StandardCharsets.UTF_8))) {
+changed = true;
+}
+// "ro.serialno\0" (11 chars + null) -> "tz.serial0X\0" (11 chars + null)
+if (replaceBytesInPlace(dexData,
+("ro.serialno\0").getBytes(StandardCharsets.UTF_8),
+("tz.serial0" + cNumStr + "\0").getBytes(StandardCharsets.UTF_8))) {
+changed = true;
+}
+// "ro.boot.serialno\0" (16 chars + null) -> "tz.boot.serial0X\0" (16 chars + null)
+if (replaceBytesInPlace(dexData,
+("ro.boot.serialno\0").getBytes(StandardCharsets.UTF_8),
+("tz.boot.serial0" + cNumStr + "\0").getBytes(StandardCharsets.UTF_8))) {
+changed = true;
+}
+
+// Recalculate DEX SHA-1 Signature and Adler32 Checksum so Android ART accepts the modified DEX
 if (changed) {
 MessageDigest md = MessageDigest.getInstance("SHA-1");
 md.update(dexData, 32, dexData.length - 32);
@@ -753,21 +807,43 @@ ByteBuffer.wrap(dexData, 8, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(checksum);
 return dexData;
 }
 
-private byte[] patchArscAppLabel(byte[] arscData, String origLabel, String customLabel) {
+private byte[] patchReactNativeBundleSafely(byte[] bundleData, String oldPkg, String newPkg, int cloneNum) {
 try {
-if (origLabel == null || customLabel == null || origLabel.isEmpty()) return arscData;
-byte[] oldUtf8 = (origLabel + "\0").getBytes(StandardCharsets.UTF_8);
-byte[] oldUtf16 = (origLabel + "\0").getBytes(StandardCharsets.UTF_16LE);
+if (bundleData == null || bundleData.length < 64) return bundleData;
+// Replace quoted JS strings like "com.et3arraf.Et3arrafApp" or 'com.et3arraf.Et3arrafApp' inside index.android.bundle
+replaceBytesInPlace(bundleData, (""" + oldPkg + """).getBytes(StandardCharsets.UTF_8), (""" + newPkg + """).getBytes(StandardCharsets.UTF_8));
+replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
+} catch (Exception ignored) {
+}
+return bundleData;
+}
 
-if (customLabel.length() <= origLabel.length()) {
+private byte[] patchArscPackageAndLabel(byte[] arscData, String oldPkg, String newPkg, String origLabel, String customLabel) {
+try {
+if (arscData == null || arscData.length < 32) return arscData;
+
+// 1. Patch ResTable_package header name (UTF-16LE null-terminated) so Split APK drawables & splash screen icons load properly!
+byte[] oldPkgUtf16 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+byte[] newPkgUtf16 = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+replaceBytesInPlace(arscData, oldPkgUtf16, newPkgUtf16);
+
+byte[] oldPkgUtf8 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
+byte[] newPkgUtf8 = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
+replaceBytesInPlace(arscData, oldPkgUtf8, newPkgUtf8);
+
+// 2. Patch App Label if same or shorter length
+if (origLabel != null && customLabel != null && !origLabel.isEmpty() && customLabel.length() <= origLabel.length()) {
 StringBuilder padded = new StringBuilder(customLabel);
 while (padded.length() < origLabel.length()) {
 padded.append(" ");
 }
-byte[] newUtf8 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_8);
-byte[] newUtf16 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_16LE);
-replaceBytesInPlace(arscData, oldUtf8, newUtf8);
-replaceBytesInPlace(arscData, oldUtf16, newUtf16);
+byte[] oldLblUtf8 = (origLabel + "\0").getBytes(StandardCharsets.UTF_8);
+byte[] newLblUtf8 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_8);
+replaceBytesInPlace(arscData, oldLblUtf8, newLblUtf8);
+
+byte[] oldLblUtf16 = (origLabel + "\0").getBytes(StandardCharsets.UTF_16LE);
+byte[] newLblUtf16 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_16LE);
+replaceBytesInPlace(arscData, oldLblUtf16, newLblUtf16);
 }
 } catch (Exception ignored) {
 }
