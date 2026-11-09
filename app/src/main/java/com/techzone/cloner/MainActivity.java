@@ -52,6 +52,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -60,6 +61,7 @@ import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.UUID;
+import java.util.zip.Adler32;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
@@ -120,14 +122,14 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone Pro APK Cloner v3.5");
+title.setText("⚡ TechZone Pro APK Cloner v3.6");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("16KB ZipAlign + All Providers & Authorities Patched");
+statusBanner.setText("Anti-Crash DEX Patcher + Custom Clone Label + 16KB Align");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
 statusBanner.setTextSize(12);
 statusBanner.setPadding(0, 8, 0, 20);
@@ -305,9 +307,9 @@ textCol.setOrientation(LinearLayout.VERTICAL);
 textCol.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
 TextView nameView = new TextView(MainActivity.this);
-nameView.setText(item.label);
+nameView.setText(item.label + " -> " + item.label + " " + currentCloneNum);
 nameView.setTextColor(Color.WHITE);
-nameView.setTextSize(16);
+nameView.setTextSize(15);
 nameView.setTypeface(null, Typeface.BOLD);
 textCol.addView(nameView);
 
@@ -322,7 +324,7 @@ if (installed) {
 badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "⚡ Split Bundle (16KB + Providers Ready)" : "○ Ready to Build Standalone APK");
+badge.setText(item.isSplitApk ? "⚡ Split Bundle (Anti-Crash DEX + Custom Name)" : "○ Ready to Build Standalone APK");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -362,18 +364,34 @@ title.setTypeface(null, Typeface.BOLD);
 topRow.addView(title);
 panel.addView(topRow);
 
+TextView nameLabel = new TextView(this);
+nameLabel.setText("✏️ Custom Clone App Name:");
+nameLabel.setTextColor(Color.parseColor("#10B981"));
+nameLabel.setTextSize(13);
+nameLabel.setTypeface(null, Typeface.BOLD);
+nameLabel.setPadding(0, 24, 0, 10);
+panel.addView(nameLabel);
+
+EditText customNameInput = new EditText(this);
+customNameInput.setText(item.label + " " + currentCloneNum);
+customNameInput.setTextColor(Color.WHITE);
+customNameInput.setTextSize(15);
+customNameInput.setBackground(createRoundedBg("#1E293B", 18, "#38BDF8", 2));
+customNameInput.setPadding(28, 20, 28, 20);
+panel.addView(customNameInput);
+
 int splitCount = (item.info.splitSourceDirs != null) ? item.info.splitSourceDirs.length : 0;
 
 TextView infoBox = new TextView(this);
 infoBox.setText("📦 New Package: " + targetClonePkg +
 "\n🧩 Mode: " + (item.isSplitApk ? "Multi-APK Split Session (" + (splitCount + 1) + " APKs)" : "Single APK") +
-"\n🔑 Identity: Unique Signing Key -> New Android ID");
+"\n🛠️ Fix: DEX Authority Sync + Keep Original App working");
 infoBox.setTextColor(Color.parseColor("#38BDF8"));
 infoBox.setTextSize(12);
 infoBox.setBackground(createRoundedBg("#1E293B", 18, "#334155", 2));
 infoBox.setPadding(28, 24, 28, 24);
 LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-boxLp.setMargins(0, 28, 0, 28);
+boxLp.setMargins(0, 24, 0, 24);
 infoBox.setLayoutParams(boxLp);
 panel.addView(infoBox);
 
@@ -381,8 +399,10 @@ AlertDialog dialog = new AlertDialog.Builder(this).setView(panel).create();
 
 Button btnBuild = createActionButton("🔨 1. Build & Direct-Install Clone", "#10B981");
 btnBuild.setOnClickListener(v -> {
+String chosenName = customNameInput.getText().toString().trim();
+if (chosenName.isEmpty()) chosenName = item.label + " " + currentCloneNum;
 dialog.dismiss();
-checkInstallPermissionAndBuild(item, targetClonePkg);
+checkInstallPermissionAndBuild(item, targetClonePkg, chosenName);
 });
 panel.addView(btnBuild);
 
@@ -407,7 +427,7 @@ panel.addView(btnUninstall);
 dialog.show();
 }
 
-private void checkInstallPermissionAndBuild(AppItem item, String targetClonePkg) {
+private void checkInstallPermissionAndBuild(AppItem item, String targetClonePkg, String customAppName) {
 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 if (!getPackageManager().canRequestPackageInstalls()) {
 new AlertDialog.Builder(this)
@@ -423,7 +443,7 @@ startActivity(intent);
 return;
 }
 }
-buildAndInstallCloneBundle(item, targetClonePkg);
+buildAndInstallCloneBundle(item, targetClonePkg, customAppName);
 }
 
 private Button createActionButton(String text, String colorHex) {
@@ -441,7 +461,7 @@ b.setPadding(24, 24, 24, 24);
 return b;
 }
 
-private void buildAndInstallCloneBundle(AppItem item, String newPkg) {
+private void buildAndInstallCloneBundle(AppItem item, String newPkg, String customAppName) {
 LinearLayout progressLayout = new LinearLayout(this);
 progressLayout.setOrientation(LinearLayout.VERTICAL);
 progressLayout.setGravity(Gravity.CENTER);
@@ -452,7 +472,7 @@ ProgressBar pb = new ProgressBar(this);
 progressLayout.addView(pb);
 
 TextView msg = new TextView(this);
-msg.setText("\nPatching Providers, Aligning .so to 16KB & Signing...\nPlease wait...");
+msg.setText("\nPatching Manifest, DEX Authorities & Renaming to '" + customAppName + "'...\nPlease wait...");
 msg.setTextColor(Color.WHITE);
 msg.setGravity(Gravity.CENTER);
 progressLayout.addView(msg);
@@ -498,7 +518,8 @@ File signedPart = new File(getCacheDir(), "signed_part_" + i + ".apk");
 if (unsignedTemp.exists()) unsignedTemp.delete();
 if (signedPart.exists()) signedPart.delete();
 
-repackageSingleApk(src, unsignedTemp, item.packageName, newPkg);
+boolean isBaseApk = (i == 0);
+repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, item.label, customAppName, isBaseApk);
 
 new ApkSigner.Builder(Collections.singletonList(signerConfig))
 .setInputApk(unsignedTemp)
@@ -610,12 +631,20 @@ new AlertDialog.Builder(this)
 }
 }
 
-private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg) throws Exception {
+private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk) throws Exception {
 try (ZipFile zipFile = new ZipFile(srcApk);
 CountingOutputStream cos = new CountingOutputStream(new FileOutputStream(dstApk));
 ZipOutputStream zos = new ZipOutputStream(cos)) {
 
 zos.setLevel(Deflater.DEFAULT_COMPRESSION);
+
+List<String> modifiedAuthorities = new ArrayList<>();
+ZipEntry manifestEntry = zipFile.getEntry("AndroidManifest.xml");
+byte[] patchedManifestData = null;
+if (manifestEntry != null) {
+byte[] rawManifest = readAllBytes(zipFile.getInputStream(manifestEntry));
+patchedManifestData = patchAxmlManifestSafely(rawManifest, oldPkg, newPkg, customLabel, isBaseApk, modifiedAuthorities);
+}
 
 Enumeration<? extends ZipEntry> entries = zipFile.entries();
 
@@ -630,10 +659,16 @@ if (name.equals("stamp-cert-sha256")) {
 continue;
 }
 
-byte[] data = readAllBytes(zipFile.getInputStream(entry));
-
-if (name.equals("AndroidManifest.xml")) {
-data = patchAxmlManifestSafely(data, oldPkg, newPkg);
+byte[] data;
+if (name.equals("AndroidManifest.xml") && patchedManifestData != null) {
+data = patchedManifestData;
+} else {
+data = readAllBytes(zipFile.getInputStream(entry));
+if (name.equals("resources.arsc")) {
+data = patchArscAppLabel(data, origLabel, customLabel);
+} else if (name.endsWith(".dex")) {
+data = patchDexAuthoritiesSafely(data, oldPkg, newPkg, modifiedAuthorities);
+}
 }
 
 ZipEntry newEntry = new ZipEntry(name);
@@ -670,25 +705,92 @@ zos.flush();
 }
 }
 
-private byte[] patchAxmlManifestSafely(byte[] data, String oldPkg, String newPkg) {
+private byte[] patchDexAuthoritiesSafely(byte[] dexData, String oldPkg, String newPkg, List<String> modifiedAuthorities) {
+try {
+if (dexData.length < 112) return dexData;
+boolean changed = false;
+
+for (String origAuth : modifiedAuthorities) {
+if (origAuth.contains(oldPkg)) {
+String newAuth = origAuth.replace(oldPkg, newPkg);
+if (origAuth.length() == newAuth.length()) {
+if (replaceBytesInPlace(dexData, origAuth.getBytes(StandardCharsets.UTF_8), newAuth.getBytes(StandardCharsets.UTF_8))) {
+changed = true;
+}
+}
+}
+}
+
+String[] commonSuffixes = {
+".notifee-init-provider",
+".fileprovider",
+".provider",
+".androidx-startup",
+".firebaseinitprovider",
+".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+};
+for (String sfx : commonSuffixes) {
+byte[] oldBytes = (oldPkg + sfx).getBytes(StandardCharsets.UTF_8);
+byte[] newBytes = (newPkg + sfx).getBytes(StandardCharsets.UTF_8);
+if (replaceBytesInPlace(dexData, oldBytes, newBytes)) {
+changed = true;
+}
+}
+
+if (changed) {
+MessageDigest md = MessageDigest.getInstance("SHA-1");
+md.update(dexData, 32, dexData.length - 32);
+byte[] sha1 = md.digest();
+System.arraycopy(sha1, 0, dexData, 12, 20);
+
+Adler32 adler = new Adler32();
+adler.update(dexData, 12, dexData.length - 12);
+int checksum = (int) adler.getValue();
+ByteBuffer.wrap(dexData, 8, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(checksum);
+}
+} catch (Exception ignored) {
+}
+return dexData;
+}
+
+private byte[] patchArscAppLabel(byte[] arscData, String origLabel, String customLabel) {
+try {
+if (origLabel == null || customLabel == null || origLabel.isEmpty()) return arscData;
+byte[] oldUtf8 = (origLabel + "\0").getBytes(StandardCharsets.UTF_8);
+byte[] oldUtf16 = (origLabel + "\0").getBytes(StandardCharsets.UTF_16LE);
+
+if (customLabel.length() <= origLabel.length()) {
+StringBuilder padded = new StringBuilder(customLabel);
+while (padded.length() < origLabel.length()) {
+padded.append(" ");
+}
+byte[] newUtf8 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_8);
+byte[] newUtf16 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_16LE);
+replaceBytesInPlace(arscData, oldUtf8, newUtf8);
+replaceBytesInPlace(arscData, oldUtf16, newUtf16);
+}
+} catch (Exception ignored) {
+}
+return arscData;
+}
+
+private byte[] patchAxmlManifestSafely(byte[] data, String oldPkg, String newPkg, String customLabel, boolean isBaseApk, List<String> outModifiedAuthorities) {
 try {
 ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 
 int offset = 8;
 int fileSize = buf.getInt(4);
 
-byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
-byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
-replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
-
-byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
-byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
-replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
-
+int labelResIdx = -1;
 int authoritiesResIdx = -1;
 int sharedUserIdResIdx = -1;
 int extractNativeLibsIdx = -1;
 int stringPoolOffset = -1;
+int customLabelStringIdx = -1;
+
+if (isBaseApk && customLabel != null && !customLabel.isEmpty()) {
+customLabelStringIdx = findAndOverwriteDummyStringInPool(data, buf, customLabel);
+}
 
 while (offset + 8 <= fileSize && offset + 8 <= data.length) {
 int chunkType = buf.getShort(offset) & 0xFFFF;
@@ -698,20 +800,25 @@ if (chunkSize <= 0) break;
 
 if (chunkType == 0x0001) {
 stringPoolOffset = offset;
-patchAllProvidersAndPermissionsInPool(data, buf, stringPoolOffset, oldPkg, newPkg);
+patchExactPackageAndProvidersInPool(data, buf, stringPoolOffset, oldPkg, newPkg, outModifiedAuthorities);
 } else if (chunkType == 0x0180) {
 int count = (chunkSize - headerSize) / 4;
 for (int i = 0; i < count; i++) {
 int resId = buf.getInt(offset + headerSize + (i * 4));
-if (resId == 0x01010018) authoritiesResIdx = i;
+if (resId == 0x01010001) labelResIdx = i;
+else if (resId == 0x01010018) authoritiesResIdx = i;
 else if (resId == 0x0101000b) sharedUserIdResIdx = i;
 else if (resId == 0x010104ea) extractNativeLibsIdx = i;
 }
 } else if (chunkType == 0x0102) {
+int elemNameIdx = buf.getInt(offset + 20);
 int attrStart = buf.getShort(offset + 24) & 0xFFFF;
 int attrSize = buf.getShort(offset + 26) & 0xFFFF;
 int attrCount = buf.getShort(offset + 28) & 0xFFFF;
 int attrsBase = offset + 16 + attrStart;
+
+String tagName = (stringPoolOffset != -1) ? getStringFromPool(data, buf, stringPoolOffset, elemNameIdx) : "";
+boolean isAppTag = "application".equals(tagName);
 
 for (int i = 0; i < attrCount; i++) {
 int attrOffset = attrsBase + (i * attrSize);
@@ -722,8 +829,14 @@ int rawValueIdx = buf.getInt(attrOffset + 8);
 int typedValueIdx = buf.getInt(attrOffset + 16);
 
 if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && stringPoolOffset != -1) {
-if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
-if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg);
+if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg, outModifiedAuthorities);
+if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg, outModifiedAuthorities);
+} else if (isAppTag && nameIdx == labelResIdx && labelResIdx != -1 && customLabelStringIdx >= 0) {
+buf.putInt(attrOffset + 8, customLabelStringIdx);
+buf.putShort(attrOffset + 12, (short) 8);
+buf.put(attrOffset + 14, (byte) 0);
+buf.put(attrOffset + 15, (byte) 0x03);
+buf.putInt(attrOffset + 16, customLabelStringIdx);
 } else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
 buf.putInt(attrOffset + 4, -1);
 } else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
@@ -743,7 +856,94 @@ offset += chunkSize;
 return data;
 }
 
-private void patchAllProvidersAndPermissionsInPool(byte[] data, ByteBuffer buf, int poolOffset, String oldPkg, String newPkg) {
+private int findAndOverwriteDummyStringInPool(byte[] data, ByteBuffer buf, String newLabel) {
+try {
+int offset = 8;
+int fileSize = buf.getInt(4);
+while (offset + 8 <= fileSize && offset + 8 <= data.length) {
+int chunkType = buf.getShort(offset) & 0xFFFF;
+int chunkSize = buf.getInt(offset + 4);
+if (chunkSize <= 0) break;
+
+if (chunkType == 0x0001) {
+int stringCount = buf.getInt(offset + 8);
+int flags = buf.getInt(offset + 16);
+boolean isUtf8 = (flags & (1 << 8)) != 0;
+int stringsStart = offset + buf.getInt(offset + 20);
+int offsetTable = offset + 28;
+
+for (int i = 0; i < stringCount; i++) {
+String s = getStringFromPool(data, buf, offset, i);
+if (s.startsWith("http://schemas.android.com/apk/res-auto") || s.startsWith("androidx.core.app.CoreComponentFactory")) {
+int strOffset = stringsStart + buf.getInt(offsetTable + (i * 4));
+if (!isUtf8) {
+int len1 = buf.getShort(strOffset) & 0xFFFF;
+if ((len1 & 0x8000) == 0 && newLabel.length() <= len1) {
+int actualStart = strOffset + 2;
+buf.putShort(strOffset, (short) newLabel.length());
+byte[] newBytes = newLabel.getBytes(StandardCharsets.UTF_16LE);
+for (int k = 0; k < len1 * 2; k++) data[actualStart + k] = 0;
+System.arraycopy(newBytes, 0, data, actualStart, newBytes.length);
+return i;
+}
+} else {
+byte[] newBytes = newLabel.getBytes(StandardCharsets.UTF_8);
+int len1 = data[strOffset] & 0xFF;
+int len2 = data[strOffset + 1] & 0xFF;
+if ((len1 & 0x80) == 0 && (len2 & 0x80) == 0 && newBytes.length <= len2) {
+data[strOffset] = (byte) newLabel.length();
+data[strOffset + 1] = (byte) newBytes.length;
+int actualStart = strOffset + 2;
+for (int k = 0; k < len2; k++) data[actualStart + k] = 0;
+System.arraycopy(newBytes, 0, data, actualStart, newBytes.length);
+return i;
+}
+}
+}
+}
+break;
+}
+offset += chunkSize;
+}
+} catch (Exception ignored) {
+}
+return -1;
+}
+
+private String getStringFromPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex) {
+try {
+if (strIndex < 0) return "";
+int stringCount = buf.getInt(poolOffset + 8);
+if (strIndex >= stringCount) return "";
+
+int flags = buf.getInt(poolOffset + 16);
+boolean isUtf8 = (flags & (1 << 8)) != 0;
+int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
+int offsetTable = poolOffset + 28;
+int strOffset = stringsStart + buf.getInt(offsetTable + (strIndex * 4));
+
+if (isUtf8) {
+int len1 = data[strOffset] & 0xFF;
+int skip = ((len1 & 0x80) != 0) ? 2 : 1;
+int len2 = data[strOffset + skip] & 0xFF;
+int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
+int actualStart = strOffset + skip + skip2;
+int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
+return new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
+} else {
+int len1 = buf.getShort(strOffset) & 0xFFFF;
+int skip = ((len1 & 0x8000) != 0) ? 4 : 2;
+int charLen = ((len1 & 0x8000) != 0) ? (((len1 & 0x7FFF) << 16) | (buf.getShort(strOffset + 2) & 0xFFFF)) : len1;
+int actualStart = strOffset + skip;
+int byteLen = charLen * 2;
+return new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
+}
+} catch (Exception e) {
+return "";
+}
+}
+
+private void patchExactPackageAndProvidersInPool(byte[] data, ByteBuffer buf, int poolOffset, String oldPkg, String newPkg, List<String> outModifiedAuthorities) {
 try {
 int stringCount = buf.getInt(poolOffset + 8);
 int flags = buf.getInt(poolOffset + 16);
@@ -766,7 +966,10 @@ int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + s
 if (byteLen <= 0 || actualStart + byteLen > data.length) continue;
 
 String val = new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
-if (shouldPatchManifestString(val, prefix)) {
+if (val.equals(oldPkg)) {
+System.arraycopy(newPkg.getBytes(StandardCharsets.UTF_8), 0, data, actualStart, byteLen);
+} else if (shouldPatchManifestString(val, prefix)) {
+outModifiedAuthorities.add(val);
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
 replaceBytesInPlace(slice, prefix.getBytes(StandardCharsets.UTF_8), newPrefix.getBytes(StandardCharsets.UTF_8));
@@ -781,7 +984,10 @@ int byteLen = charLen * 2;
 if (byteLen <= 0 || actualStart + byteLen > data.length) continue;
 
 String val = new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
-if (shouldPatchManifestString(val, prefix)) {
+if (val.equals(oldPkg)) {
+System.arraycopy(newPkg.getBytes(StandardCharsets.UTF_16LE), 0, data, actualStart, byteLen);
+} else if (shouldPatchManifestString(val, prefix)) {
+outModifiedAuthorities.add(val);
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
 replaceBytesInPlace(slice, prefix.getBytes(StandardCharsets.UTF_16LE), newPrefix.getBytes(StandardCharsets.UTF_16LE));
@@ -798,7 +1004,7 @@ if (!val.startsWith(prefix)) return false;
 String suffix = val.substring(prefix.length());
 String lower = suffix.toLowerCase();
 if (suffix.contains("-") || suffix.contains(";")) return true;
-if (lower.contains("provider") || lower.contains("permission") || lower.contains("receiver") || lower.contains("authority") || lower.contains("acra") || lower.contains("workmanager") || lower.contains("lifecycle") || lower.contains("firebase") || lower.contains("facebook") || lower.contains("google") || lower.contains("sentry") || lower.contains("crashlytics")) {
+if (lower.contains("provider") || lower.contains("permission") || lower.contains("authority") || lower.contains("workmanager") || lower.contains("lifecycle") || lower.contains("firebaseinit")) {
 return true;
 }
 if (!suffix.contains(".") && suffix.equals(lower)) {
@@ -807,7 +1013,7 @@ return true;
 return false;
 }
 
-private void forceModifyAuthorityInPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex, String oldPkg, String newPkg) {
+private void forceModifyAuthorityInPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex, String oldPkg, String newPkg, List<String> outModifiedAuthorities) {
 try {
 int stringCount = buf.getInt(poolOffset + 8);
 if (strIndex < 0 || strIndex >= stringCount) return;
@@ -828,10 +1034,13 @@ int actualStart = strOffset + skip + skip2;
 int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
 if (byteLen <= 0 || actualStart + byteLen > data.length) return;
 
+String origVal = new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
+outModifiedAuthorities.add(origVal);
+
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
 boolean changed = replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_8), newPkg.getBytes(StandardCharsets.UTF_8));
-if (!changed) {
+if (!changed && !origVal.contains(newPkg)) {
 slice[byteLen - 1] = (byte) cloneChar;
 }
 System.arraycopy(slice, 0, data, actualStart, byteLen);
@@ -843,10 +1052,13 @@ int actualStart = strOffset + skip;
 int byteLen = charLen * 2;
 if (byteLen < 2 || actualStart + byteLen > data.length) return;
 
+String origVal = new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
+outModifiedAuthorities.add(origVal);
+
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
 boolean changed = replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_16LE), newPkg.getBytes(StandardCharsets.UTF_16LE));
-if (!changed) {
+if (!changed && !origVal.contains(newPkg)) {
 slice[byteLen - 2] = (byte) cloneChar;
 slice[byteLen - 1] = 0;
 }
