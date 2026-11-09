@@ -123,16 +123,16 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone Pro APK Cloner v4.2");
+title.setText("⚡ TechZone Pro APK Cloner v4.3");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("Android 13 ART Verifier Safe + v3.6 Core + 16KB Split Align");
+statusBanner.setText("PlayCheck Bypass + Amazon Perm Fix + ARSC Drawables + RN Stealth");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
-statusBanner.setTextSize(12);
+statusBanner.setTextSize(11);
 statusBanner.setPadding(0, 8, 0, 20);
 header.addView(statusBanner);
 
@@ -335,10 +335,10 @@ textCol.addView(pkgView);
 
 TextView badge = new TextView(MainActivity.this);
 if (installed) {
-badge.setText("✔ Clone #" + currentCloneNum + " Installed (Android 13 Safe)");
+badge.setText("✔ Clone #" + currentCloneNum + " Installed (v4.3 Stealth)");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "🛡️ Split Bundle (Android 13 DEX Verifier Safe)" : "🛡️ Standalone (Android 13 DEX Verifier Safe)");
+badge.setText(item.isSplitApk ? "🛡️ Split Bundle (PlayCheck Bypass + ARSC Fix)" : "🛡️ Standalone (All Perms & Providers Fixed)");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -379,7 +379,7 @@ topRow.addView(title);
 panel.addView(topRow);
 
 TextView nameLabel = new TextView(this);
-nameLabel.setText("✏️ Clone App Name (Max " + item.label.length() + " chars for safe ARSC):");
+nameLabel.setText("✏️ Clone App Name (Max " + item.label.length() + " chars):");
 nameLabel.setTextColor(Color.parseColor("#10B981"));
 nameLabel.setTextSize(13);
 nameLabel.setTypeface(null, Typeface.BOLD);
@@ -398,9 +398,9 @@ int splitCount = (item.info.splitSourceDirs != null) ? item.info.splitSourceDirs
 
 TextView infoBox = new TextView(this);
 infoBox.setText("📦 Package: " + targetClonePkg +
-"\n🛡️ Engine: v3.6 Non-Crash Core + Android 13 DEX Sort Verifier" +
-"\n🆔 Identity: Sort-Checked Android_ID & Unique Signing Key" +
-"\n🧩 Mode: Multi-APK Split Session (" + (splitCount + 1) + " APKs)");
+"\n🛡️ Bypasses: Play Store Check (Talabat) + Platform Check (Khattaba)" +
+"\n🔑 Permissions: Auto-Renames Custom Perms (Amazon Fix)" +
+"\n🎨 Graphics: Exact ResTable_package Header Patch (" + (splitCount + 1) + " APKs)");
 infoBox.setTextColor(Color.parseColor("#38BDF8"));
 infoBox.setTextSize(11);
 infoBox.setBackground(createRoundedBg("#1E293B", 18, "#334155", 2));
@@ -412,7 +412,7 @@ panel.addView(infoBox);
 
 AlertDialog dialog = new AlertDialog.Builder(this).setView(panel).create();
 
-Button btnBuild = createActionButton("🔨 1. Build & Install Clone (Android 13 Safe)", "#10B981");
+Button btnBuild = createActionButton("🔨 1. Build & Install Stealth Clone (v4.3)", "#10B981");
 btnBuild.setOnClickListener(v -> {
 String chosenName = customNameInput.getText().toString().trim();
 if (chosenName.isEmpty()) chosenName = generateSafeDefaultLabel(item.label, currentCloneNum);
@@ -487,7 +487,7 @@ ProgressBar pb = new ProgressBar(this);
 progressLayout.addView(pb);
 
 TextView msg = new TextView(this);
-msg.setText("\nBuilding Android 13 Verified Clone #" + cloneNum + "...\nChecking DEX String Sort Order & Aligning 16KB...");
+msg.setText("\nBuilding Stealth Clone #" + cloneNum + "...\nPatching Perms, ARSC Drawables, DEX & RN Bundle...");
 msg.setTextColor(Color.WHITE);
 msg.setGravity(Gravity.CENTER);
 progressLayout.addView(msg);
@@ -505,7 +505,7 @@ KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
 kpg.initialize(2048);
 KeyPair kp = kpg.generateKeyPair();
 
-X500Name issuer = new X500Name("CN=Device_" + UUID.randomUUID().toString().substring(0, 8) + ", O=TechZoneCloner");
+X500Name issuer = new X500Name("CN=Android_" + UUID.randomUUID().toString().substring(0, 8) + ", O=Google Inc, C=US");
 BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
 Date notBefore = new Date(System.currentTimeMillis() - 86400000L);
 Date notAfter = new Date(System.currentTimeMillis() + 315360000000L);
@@ -560,7 +560,7 @@ copyFile(signedApksToInstall.get(0), outDownload);
 
 runOnUiThread(() -> {
 progressDialog.dismiss();
-installSplitApkSession(signedApksToInstall);
+installSplitApkSession(signedApksToInstall, newPkg);
 });
 
 } catch (Throwable e) {
@@ -577,13 +577,27 @@ new AlertDialog.Builder(this)
 }).start();
 }
 
-private void installSplitApkSession(List<File> apkFiles) {
+private void installSplitApkSession(List<File> apkFiles, String targetPkg) {
 try {
 PackageInstaller packageInstaller = getPackageManager().getPackageInstaller();
 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
 PackageInstaller.SessionParams.MODE_FULL_INSTALL);
 
-int sessionId = packageInstaller.createSession(params);
+params.setAppPackageName(targetPkg);
+try {
+params.setInstallerPackageName("com.android.vending");
+} catch (Throwable ignored) {
+}
+
+int sessionId;
+try {
+sessionId = packageInstaller.createSession(params);
+} catch (Throwable ignored) {
+params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+params.setAppPackageName(targetPkg);
+sessionId = packageInstaller.createSession(params);
+}
+
 PackageInstaller.Session session = packageInstaller.openSession(sessionId);
 
 byte[] buffer = new byte[32768];
@@ -640,7 +654,7 @@ if (confirmIntent != null) {
 startActivity(confirmIntent);
 }
 } else if (status == PackageInstaller.STATUS_SUCCESS) {
-Toast.makeText(this, "🎉 Clone Installed Successfully!", Toast.LENGTH_LONG).show();
+Toast.makeText(this, "🎉 Stealth Clone Installed Successfully!", Toast.LENGTH_LONG).show();
 if (adapter != null) adapter.notifyDataSetChanged();
 } else if (status != -999) {
 new AlertDialog.Builder(this)
@@ -686,10 +700,12 @@ if (name.equals("AndroidManifest.xml") && patchedManifestData != null) {
 data = patchedManifestData;
 } else {
 data = readAllBytes(zipFile.getInputStream(entry));
-if (name.equals("resources.arsc") && isBaseApk) {
-data = patchArscAppLabelSafely(data, origLabel, customLabel);
+if (name.equals("resources.arsc")) {
+data = patchArscHeaderAndLabelSafely(data, oldPkg, newPkg, origLabel, customLabel, isBaseApk);
 } else if (name.endsWith(".dex")) {
 data = patchDexAndroid13Safe(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
+} else if (name.endsWith(".bundle") || name.equals("assets/index.android.bundle")) {
+data = patchReactNativeBundleSafely(data, oldPkg, newPkg);
 }
 }
 
@@ -735,11 +751,19 @@ return dexData;
 }
 boolean changed = false;
 
-for (String origAuth : modifiedAuthorities) {
-if (origAuth.contains(oldPkg)) {
-String newAuth = origAuth.replace(oldPkg, newPkg);
-if (origAuth.length() == newAuth.length()) {
-if (replaceDexStringSortSafe(dexData, origAuth, newAuth)) {
+// 1. Sync all modified Provider Authorities & Custom Permissions (including Amazon preload permissions)
+for (String origEntry : modifiedAuthorities) {
+if (origEntry.contains(" -> ")) {
+String[] parts = origEntry.split(" -> ");
+if (parts.length == 2 && parts[0].length() == parts[1].length()) {
+if (replaceDexStringSortSafe(dexData, parts[0], parts[1])) {
+changed = true;
+}
+}
+} else if (origEntry.contains(oldPkg)) {
+String newAuth = origEntry.replace(oldPkg, newPkg);
+if (origEntry.length() == newAuth.length()) {
+if (replaceDexStringSortSafe(dexData, origEntry, newAuth)) {
 changed = true;
 }
 }
@@ -760,6 +784,18 @@ changed = true;
 }
 }
 
+// 2. Patch exact package name string in DEX (Bypasses Khattaba & Talabat self-package checks)
+if (replaceDexStringSortSafe(dexData, oldPkg, newPkg)) {
+changed = true;
+}
+
+// 3. Bypass Google Play Store / PairIP / PlayCore installer check (Talabat & Khattaba)
+// When the app checks if installer == "com.android.vending", or checks our cloner package
+if (replaceDexStringSortSafe(dexData, "com.Pairip.licensecheck", "com.Pairip.licensechecl")) {
+changed = true;
+}
+
+// 4. Device Identity Spoofing (Sort-Safe for Android 13 ART Verifier)
 char cDigit = (char) ('0' + (cloneNum % 10));
 String[] idCandidates = {
 "android_ic" + cDigit,
@@ -768,6 +804,17 @@ String[] idCandidates = {
 };
 for (String cand : idCandidates) {
 if (replaceDexStringSortSafe(dexData, "android_id", cand)) {
+changed = true;
+break;
+}
+}
+
+String[] serialCandidates = {
+"ro.serialn" + cDigit,
+"ro.serialm" + cDigit
+};
+for (String cand : serialCandidates) {
+if (replaceDexStringSortSafe(dexData, "ro.serialno", cand)) {
 changed = true;
 break;
 }
@@ -787,6 +834,25 @@ ByteBuffer.wrap(dexData, 8, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(checksum);
 } catch (Exception ignored) {
 }
 return dexData;
+}
+
+private byte[] patchReactNativeBundleSafely(byte[] bundleData, String oldPkg, String newPkg) {
+try {
+if (bundleData == null || bundleData.length < 64) return bundleData;
+
+boolean isHermesBytecode = ((bundleData[0] & 0xFF) == 0xC6 &&
+(bundleData[1] & 0xFF) == 0x1F &&
+(bundleData[2] & 0xFF) == 0xBC &&
+(bundleData[3] & 0xFF) == 0x03);
+
+if (!isHermesBytecode) {
+// Plain JS bundle (Used by React Native apps like Khattaba)
+replaceBytesInPlace(bundleData, (""" + oldPkg + """).getBytes(StandardCharsets.UTF_8), (""" + newPkg + """).getBytes(StandardCharsets.UTF_8));
+replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
+}
+} catch (Exception ignored) {
+}
+return bundleData;
 }
 
 private boolean replaceDexStringSortSafe(byte[] dexData, String targetStr, String replacementStr) {
@@ -889,11 +955,47 @@ if (va != vb) return va - vb;
 return a.length - b.length;
 }
 
-private byte[] patchArscAppLabelSafely(byte[] arscData, String origLabel, String customLabel) {
+/**
+* Safely patches ONLY the 256-byte ResTable_package header (chunk type 0x0200) inside resources.arsc
+* so resources.getIdentifier(..., "drawable", context.getPackageName()) finds Khattaba's splash image
+* without corrupting any string pools!
+*/
+private byte[] patchArscHeaderAndLabelSafely(byte[] arscData, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk) {
 try {
-if (arscData == null || arscData.length < 32 || origLabel == null || customLabel == null || origLabel.isEmpty() || customLabel.isEmpty()) {
-return arscData;
+if (arscData == null || arscData.length < 32) return arscData;
+ByteBuffer buf = ByteBuffer.wrap(arscData).order(ByteOrder.LITTLE_ENDIAN);
+
+int type = buf.getShort(0) & 0xFFFF;
+int headerSize = buf.getShort(2) & 0xFFFF;
+int fileSize = buf.getInt(4);
+
+if (type == 0x0002 && headerSize >= 12) { // RES_TABLE_TYPE
+int offset = headerSize;
+while (offset + 8 <= fileSize && offset + 8 <= arscData.length) {
+int chunkType = buf.getShort(offset) & 0xFFFF;
+int chunkSize = buf.getInt(offset + 4);
+if (chunkSize <= 0) break;
+
+if (chunkType == 0x0200 && offset + 268 <= arscData.length) { // RES_TABLE_PACKAGE_TYPE
+// Package name is a fixed 128-char (256-byte) UTF-16LE field starting at offset + 12
+int namePos = offset + 12;
+StringBuilder sb = new StringBuilder();
+for (int c = 0; c < 128; c++) {
+char ch = buf.getChar(namePos + (c * 2));
+if (ch == 0) break;
+sb.append(ch);
 }
+if (sb.toString().equals(oldPkg) && newPkg.length() < 128) {
+for (int k = 0; k < 256; k++) arscData[namePos + k] = 0;
+byte[] newBytes = newPkg.getBytes(StandardCharsets.UTF_16LE);
+System.arraycopy(newBytes, 0, arscData, namePos, newBytes.length);
+}
+}
+offset += chunkSize;
+}
+}
+
+if (isBaseApk && origLabel != null && customLabel != null && !origLabel.isEmpty() && !customLabel.isEmpty()) {
 byte[] origUtf8 = origLabel.getBytes(StandardCharsets.UTF_8);
 byte[] newUtf8 = customLabel.getBytes(StandardCharsets.UTF_8);
 
@@ -911,15 +1013,6 @@ System.arraycopy(newUtf8, 0, replacementUtf8, 2, newUtf8.length);
 
 replaceBytesInPlace(arscData, patternUtf8, replacementUtf8);
 }
-
-if (customLabel.length() <= origLabel.length()) {
-StringBuilder padded = new StringBuilder(customLabel);
-while (padded.length() < origLabel.length()) {
-padded.append(" ");
-}
-byte[] oldLblUtf16 = (origLabel + "\0").getBytes(StandardCharsets.UTF_16LE);
-byte[] newLblUtf16 = (padded.toString() + "\0").getBytes(StandardCharsets.UTF_16LE);
-replaceBytesInPlace(arscData, oldLblUtf16, newLblUtf16);
 }
 } catch (Exception ignored) {
 }
@@ -933,6 +1026,7 @@ ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 int offset = 8;
 int fileSize = buf.getInt(4);
 
+int nameResIdx = -1;
 int authoritiesResIdx = -1;
 int sharedUserIdResIdx = -1;
 int extractNativeLibsIdx = -1;
@@ -951,15 +1045,21 @@ patchExactPackageAndProvidersInPool(data, buf, stringPoolOffset, oldPkg, newPkg,
 int count = (chunkSize - headerSize) / 4;
 for (int i = 0; i < count; i++) {
 int resId = buf.getInt(offset + headerSize + (i * 4));
-if (resId == 0x01010018) authoritiesResIdx = i;
-else if (resId == 0x0101000b) sharedUserIdResIdx = i;
-else if (resId == 0x010104ea) extractNativeLibsIdx = i;
+if (resId == 0x01010003) nameResIdx = i; // android:name
+else if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
+else if (resId == 0x0101000b) sharedUserIdResIdx = i; // android:sharedUserId
+else if (resId == 0x010104ea) extractNativeLibsIdx = i; // android:extractNativeLibs
 }
 } else if (chunkType == 0x0102) {
+int elemNameIdx = buf.getInt(offset + 20);
 int attrStart = buf.getShort(offset + 24) & 0xFFFF;
 int attrSize = buf.getShort(offset + 26) & 0xFFFF;
 int attrCount = buf.getShort(offset + 28) & 0xFFFF;
 int attrsBase = offset + 16 + attrStart;
+
+String tagName = (stringPoolOffset != -1) ? getStringFromPool(data, buf, stringPoolOffset, elemNameIdx) : "";
+boolean isPermissionDefTag = "permission".equals(tagName) || "permission-tree".equals(tagName) || "permission-group".equals(tagName);
+boolean isMetaDataTag = "meta-data".equals(tagName);
 
 for (int i = 0; i < attrCount; i++) {
 int attrOffset = attrsBase + (i * attrSize);
@@ -969,10 +1069,27 @@ int nameIdx = buf.getInt(attrOffset + 4);
 int rawValueIdx = buf.getInt(attrOffset + 8);
 int typedValueIdx = buf.getInt(attrOffset + 16);
 
+// 1. Patch all Provider authorities
 if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && stringPoolOffset != -1) {
 if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg, outModifiedAuthorities);
 if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg, outModifiedAuthorities);
-} else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
+}
+// 2. Patch ALL <permission android:name="..."> declarations (Fixes Amazon INSTALL_FAILED_DUPLICATE_PERMISSION!)
+else if (isPermissionDefTag && nameIdx == nameResIdx && nameResIdx != -1 && stringPoolOffset != -1) {
+if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg, outModifiedAuthorities);
+if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg, outModifiedAuthorities);
+}
+// 3. Disable Google Play / PairIP Split & License Requirement in <meta-data> (Fixes Talabat white popup!)
+else if (isMetaDataTag && nameIdx == nameResIdx && nameResIdx != -1 && stringPoolOffset != -1) {
+int strIdx = (rawValueIdx >= 0) ? rawValueIdx : typedValueIdx;
+String metaName = getStringFromPool(data, buf, stringPoolOffset, strIdx);
+if (metaName.equals("com.android.vending.splits.required") ||
+metaName.equals("com.android.stamp.source") ||
+metaName.contains("licensecheck")) {
+buf.putInt(attrOffset + 4, -1);
+}
+}
+else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
 buf.putInt(attrOffset + 4, -1);
 } else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
 buf.putInt(attrOffset + 8, -1);
@@ -989,6 +1106,39 @@ offset += chunkSize;
 } catch (Exception ignored) {
 }
 return data;
+}
+
+private String getStringFromPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex) {
+try {
+if (strIndex < 0) return "";
+int stringCount = buf.getInt(poolOffset + 8);
+if (strIndex >= stringCount) return "";
+
+int flags = buf.getInt(poolOffset + 16);
+boolean isUtf8 = (flags & (1 << 8)) != 0;
+int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
+int offsetTable = poolOffset + 28;
+int strOffset = stringsStart + buf.getInt(offsetTable + (strIndex * 4));
+
+if (isUtf8) {
+int len1 = data[strOffset] & 0xFF;
+int skip = ((len1 & 0x80) != 0) ? 2 : 1;
+int len2 = data[strOffset + skip] & 0xFF;
+int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
+int actualStart = strOffset + skip + skip2;
+int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
+return new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
+} else {
+int len1 = buf.getShort(strOffset) & 0xFFFF;
+int skip = ((len1 & 0x8000) != 0) ? 4 : 2;
+int charLen = ((len1 & 0x8000) != 0) ? (((len1 & 0x7FFF) << 16) | (buf.getShort(strOffset + 2) & 0xFFFF)) : len1;
+int actualStart = strOffset + skip;
+int byteLen = charLen * 2;
+return new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
+}
+} catch (Exception e) {
+return "";
+}
 }
 
 private void patchExactPackageAndProvidersInPool(byte[] data, ByteBuffer buf, int poolOffset, String oldPkg, String newPkg, List<String> outModifiedAuthorities) {
@@ -1083,7 +1233,6 @@ int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + s
 if (byteLen <= 0 || actualStart + byteLen > data.length) return;
 
 String origVal = new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
-outModifiedAuthorities.add(origVal);
 
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
@@ -1091,6 +1240,8 @@ boolean changed = replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UT
 if (!changed && !origVal.contains(newPkg)) {
 slice[byteLen - 1] = (byte) cloneChar;
 }
+String newVal = new String(slice, StandardCharsets.UTF_8);
+outModifiedAuthorities.add(origVal + " -> " + newVal);
 System.arraycopy(slice, 0, data, actualStart, byteLen);
 } else {
 int len1 = buf.getShort(strOffset) & 0xFFFF;
@@ -1101,7 +1252,6 @@ int byteLen = charLen * 2;
 if (byteLen < 2 || actualStart + byteLen > data.length) return;
 
 String origVal = new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
-outModifiedAuthorities.add(origVal);
 
 byte[] slice = new byte[byteLen];
 System.arraycopy(data, actualStart, slice, 0, byteLen);
@@ -1110,6 +1260,8 @@ if (!changed && !origVal.contains(newPkg)) {
 slice[byteLen - 2] = (byte) cloneChar;
 slice[byteLen - 1] = 0;
 }
+String newVal = new String(slice, StandardCharsets.UTF_16LE);
+outModifiedAuthorities.add(origVal + " -> " + newVal);
 System.arraycopy(slice, 0, data, actualStart, byteLen);
 }
 } catch (Exception ignored) {
