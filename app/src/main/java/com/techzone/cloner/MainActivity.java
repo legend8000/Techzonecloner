@@ -76,7 +76,6 @@ Drawable icon;
 boolean isSplitApk;
 }
 
-// كلاس لحساب موقع كل بايت بدقة متناهية لمحاذاة الـ ZIP بدون أي انحراف
 private static class CountingOutputStream extends FilterOutputStream {
 long count = 0;
 
@@ -121,14 +120,14 @@ header.setBackground(createRoundedBg("#1E293B", 28, "#38BDF8", 2));
 header.setPadding(32, 28, 32, 28);
 
 TextView title = new TextView(this);
-title.setText("⚡ TechZone APK Re-Cloner v3.4");
+title.setText("⚡ TechZone Pro APK Cloner v3.5");
 title.setTextColor(Color.parseColor("#38BDF8"));
 title.setTextSize(20);
 title.setTypeface(null, Typeface.BOLD);
 header.addView(title);
 
 statusBanner = new TextView(this);
-statusBanner.setText("16KB ZipAlign + Provider & Permission Conflict Fix");
+statusBanner.setText("16KB ZipAlign + All Providers & Authorities Patched");
 statusBanner.setTextColor(Color.parseColor("#94A3B8"));
 statusBanner.setTextSize(12);
 statusBanner.setPadding(0, 8, 0, 20);
@@ -323,7 +322,7 @@ if (installed) {
 badge.setText("✔ Clone #" + currentCloneNum + " Installed on Phone");
 badge.setTextColor(Color.parseColor("#10B981"));
 } else {
-badge.setText(item.isSplitApk ? "⚡ Split Bundle (16KB + Provider Fix)" : "○ Ready to Build Standalone APK");
+badge.setText(item.isSplitApk ? "⚡ Split Bundle (16KB + Providers Ready)" : "○ Ready to Build Standalone APK");
 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
 }
 badge.setTextSize(11);
@@ -624,7 +623,6 @@ while (entries.hasMoreElements()) {
 ZipEntry entry = entries.nextElement();
 String name = entry.getName();
 
-// 1. حذف التوقيعات القديمة بالكامل
 if (name.startsWith("META-INF/") && (name.endsWith(".SF") || name.endsWith(".RSA") || name.endsWith(".DSA") || name.equals("META-INF/MANIFEST.MF"))) {
 continue;
 }
@@ -634,18 +632,15 @@ continue;
 
 byte[] data = readAllBytes(zipFile.getInputStream(entry));
 
-// 2. تعديل الـ Manifest
 if (name.equals("AndroidManifest.xml")) {
 data = patchAxmlManifestSafely(data, oldPkg, newPkg);
 }
 
-// عدم استدعاء setTime نهائياً لمنع حقن بايتات Extended Timestamp المخفية
 ZipEntry newEntry = new ZipEntry(name);
 
 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
 boolean isArsc = name.equals("resources.arsc");
 
-// 3. تخزين ملفات .so و resources.arsc كـ STORED مع محاذاة دقيقة 16KB
 if (isNativeLib || isArsc || entry.getMethod() == ZipEntry.STORED) {
 newEntry.setMethod(ZipEntry.STORED);
 newEntry.setSize(data.length);
@@ -682,7 +677,6 @@ ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
 int offset = 8;
 int fileSize = buf.getInt(4);
 
-// 1. استبدال اسم الحزمة الصريح المنتهي بـ Null-terminator
 byte[] oldUtf16Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
 byte[] newUtf16Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
 replaceBytesInPlace(data, oldUtf16Exact, newUtf16Exact);
@@ -691,47 +685,33 @@ byte[] oldUtf8Exact = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
 byte[] newUtf8Exact = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
 replaceBytesInPlace(data, oldUtf8Exact, newUtf8Exact);
 
-int nameResIdx = -1;
 int authoritiesResIdx = -1;
 int sharedUserIdResIdx = -1;
 int extractNativeLibsIdx = -1;
-
 int stringPoolOffset = -1;
 
-// 2. فحص جميع الـ Chunks في الـ Binary XML
 while (offset + 8 <= fileSize && offset + 8 <= data.length) {
 int chunkType = buf.getShort(offset) & 0xFFFF;
 int headerSize = buf.getShort(offset + 2) & 0xFFFF;
 int chunkSize = buf.getInt(offset + 4);
 if (chunkSize <= 0) break;
 
-if (chunkType == 0x0001) { // RES_STRING_POOL_TYPE
+if (chunkType == 0x0001) {
 stringPoolOffset = offset;
-} else if (chunkType == 0x0180) { // RES_XML_RESOURCE_MAP_TYPE
+patchAllProvidersAndPermissionsInPool(data, buf, stringPoolOffset, oldPkg, newPkg);
+} else if (chunkType == 0x0180) {
 int count = (chunkSize - headerSize) / 4;
 for (int i = 0; i < count; i++) {
 int resId = buf.getInt(offset + headerSize + (i * 4));
-if (resId == 0x01010003) nameResIdx = i; // android:name
-else if (resId == 0x01010018) authoritiesResIdx = i; // android:authorities
-else if (resId == 0x0101000b) sharedUserIdResIdx = i; // android:sharedUserId
-else if (resId == 0x010104ea) extractNativeLibsIdx = i; // android:extractNativeLibs
+if (resId == 0x01010018) authoritiesResIdx = i;
+else if (resId == 0x0101000b) sharedUserIdResIdx = i;
+else if (resId == 0x010104ea) extractNativeLibsIdx = i;
 }
-} else if (chunkType == 0x0102) { // RES_XML_START_ELEMENT_TYPE
-// الإزاحات الصحيحة لهيكل ResXMLTree_attrExt في أندرويد:
-// offset + 16: ns (4 bytes)
-// offset + 20: element name index (4 bytes)
-// offset + 24: attributeStart (2 bytes)
-// offset + 26: attributeSize (2 bytes)
-// offset + 28: attributeCount (2 bytes)
-int elemNameIdx = buf.getInt(offset + 20);
+} else if (chunkType == 0x0102) {
 int attrStart = buf.getShort(offset + 24) & 0xFFFF;
 int attrSize = buf.getShort(offset + 26) & 0xFFFF;
 int attrCount = buf.getShort(offset + 28) & 0xFFFF;
 int attrsBase = offset + 16 + attrStart;
-
-String tagName = (stringPoolOffset != -1) ? getStringFromPool(data, buf, stringPoolOffset, elemNameIdx) : "";
-boolean isPermissionTag = "permission".equals(tagName) || "uses-permission".equals(tagName) || "permission-tree".equals(tagName);
-boolean isProviderTag = "provider".equals(tagName);
 
 for (int i = 0; i < attrCount; i++) {
 int attrOffset = attrsBase + (i * attrSize);
@@ -739,67 +719,105 @@ if (attrOffset + 20 > data.length) break;
 
 int nameIdx = buf.getInt(attrOffset + 4);
 int rawValueIdx = buf.getInt(attrOffset + 8);
-int typedDataType = buf.get(attrOffset + 15) & 0xFF;
 int typedValueIdx = buf.getInt(attrOffset + 16);
 
-int strIdx = (rawValueIdx >= 0) ? rawValueIdx : ((typedDataType == 0x03) ? typedValueIdx : -1);
-
-// أ) تعديل android:authorities لمنع خطأ INSTALL_FAILED_CONFLICTING_PROVIDER نهائياً
-if ((nameIdx == authoritiesResIdx && authoritiesResIdx != -1) || (isProviderTag && nameIdx != nameResIdx)) {
-if (stringPoolOffset != -1) {
-if (rawValueIdx >= 0) {
-patchAuthorityStringInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
-}
-if (typedDataType == 0x03 && typedValueIdx >= 0 && typedValueIdx != rawValueIdx) {
-patchAuthorityStringInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg);
-}
-}
-}
-// ب) تعديل صلاحيات التطبيق المخصصة <permission android:name="..."> لمنع DUPLICATE_PERMISSION
-else if (isPermissionTag && nameIdx == nameResIdx && nameResIdx != -1 && strIdx >= 0 && stringPoolOffset != -1) {
-patchSpecificStringInPool(data, buf, stringPoolOffset, strIdx, oldPkg, newPkg);
-}
-// ج) تعطيل android:sharedUserId
-else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
+if (nameIdx == authoritiesResIdx && authoritiesResIdx != -1 && stringPoolOffset != -1) {
+if (rawValueIdx >= 0) forceModifyAuthorityInPool(data, buf, stringPoolOffset, rawValueIdx, oldPkg, newPkg);
+if (typedValueIdx >= 0 && typedValueIdx != rawValueIdx) forceModifyAuthorityInPool(data, buf, stringPoolOffset, typedValueIdx, oldPkg, newPkg);
+} else if (nameIdx == sharedUserIdResIdx && sharedUserIdResIdx != -1) {
 buf.putInt(attrOffset + 4, -1);
-}
-// د) ضبط android:extractNativeLibs = true (-1)
-else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
+} else if (nameIdx == extractNativeLibsIdx && extractNativeLibsIdx != -1) {
 buf.putInt(attrOffset + 8, -1);
 buf.putShort(attrOffset + 12, (short) 8);
 buf.put(attrOffset + 14, (byte) 0);
-buf.put(attrOffset + 15, (byte) 0x12); // TYPE_INT_BOOLEAN
-buf.putInt(attrOffset + 16, -1); // true
+buf.put(attrOffset + 15, (byte) 0x12);
+buf.putInt(attrOffset + 16, -1);
 }
 }
 }
 offset += chunkSize;
 }
 
-// تعديل أي نصوص صلاحيات أو مزودات شائعة مباشرة في جدول النصوص
-replaceStringInBinaryXml(data, oldPkg + ".DYNAMIC_RECEIVER", newPkg + ".DYNAMIC_RECEIVER");
-replaceStringInBinaryXml(data, oldPkg + ".permission.", newPkg + ".permission.");
-replaceStringInBinaryXml(data, oldPkg + ".notifee", newPkg + ".notifee");
-replaceStringInBinaryXml(data, oldPkg + ".fileprovider", newPkg + ".fileprovider");
-replaceStringInBinaryXml(data, oldPkg + ".androidx-startup", newPkg + ".androidx-startup");
-replaceStringInBinaryXml(data, oldPkg + ".firebaseinitprovider", newPkg + ".firebaseinitprovider");
-
 } catch (Exception ignored) {
 }
 return data;
 }
 
-private String getStringFromPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex) {
+private void patchAllProvidersAndPermissionsInPool(byte[] data, ByteBuffer buf, int poolOffset, String oldPkg, String newPkg) {
 try {
-if (strIndex < 0) return "";
 int stringCount = buf.getInt(poolOffset + 8);
-if (strIndex >= stringCount) return "";
+int flags = buf.getInt(poolOffset + 16);
+boolean isUtf8 = (flags & (1 << 8)) != 0;
+int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
+int offsetTable = poolOffset + 28;
+
+String prefix = oldPkg + ".";
+String newPrefix = newPkg + ".";
+
+for (int i = 0; i < stringCount; i++) {
+int strOffset = stringsStart + buf.getInt(offsetTable + (i * 4));
+if (isUtf8) {
+int len1 = data[strOffset] & 0xFF;
+int skip = ((len1 & 0x80) != 0) ? 2 : 1;
+int len2 = data[strOffset + skip] & 0xFF;
+int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
+int actualStart = strOffset + skip + skip2;
+int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
+if (byteLen <= 0 || actualStart + byteLen > data.length) continue;
+
+String val = new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
+if (shouldPatchManifestString(val, prefix)) {
+byte[] slice = new byte[byteLen];
+System.arraycopy(data, actualStart, slice, 0, byteLen);
+replaceBytesInPlace(slice, prefix.getBytes(StandardCharsets.UTF_8), newPrefix.getBytes(StandardCharsets.UTF_8));
+System.arraycopy(slice, 0, data, actualStart, byteLen);
+}
+} else {
+int len1 = buf.getShort(strOffset) & 0xFFFF;
+int skip = ((len1 & 0x8000) != 0) ? 4 : 2;
+int charLen = ((len1 & 0x8000) != 0) ? (((len1 & 0x7FFF) << 16) | (buf.getShort(strOffset + 2) & 0xFFFF)) : len1;
+int actualStart = strOffset + skip;
+int byteLen = charLen * 2;
+if (byteLen <= 0 || actualStart + byteLen > data.length) continue;
+
+String val = new String(data, actualStart, byteLen, StandardCharsets.UTF_16LE);
+if (shouldPatchManifestString(val, prefix)) {
+byte[] slice = new byte[byteLen];
+System.arraycopy(data, actualStart, slice, 0, byteLen);
+replaceBytesInPlace(slice, prefix.getBytes(StandardCharsets.UTF_16LE), newPrefix.getBytes(StandardCharsets.UTF_16LE));
+System.arraycopy(slice, 0, data, actualStart, byteLen);
+}
+}
+}
+} catch (Exception ignored) {
+}
+}
+
+private boolean shouldPatchManifestString(String val, String prefix) {
+if (!val.startsWith(prefix)) return false;
+String suffix = val.substring(prefix.length());
+String lower = suffix.toLowerCase();
+if (suffix.contains("-") || suffix.contains(";")) return true;
+if (lower.contains("provider") || lower.contains("permission") || lower.contains("receiver") || lower.contains("authority") || lower.contains("acra") || lower.contains("workmanager") || lower.contains("lifecycle") || lower.contains("firebase") || lower.contains("facebook") || lower.contains("google") || lower.contains("sentry") || lower.contains("crashlytics")) {
+return true;
+}
+if (!suffix.contains(".") && suffix.equals(lower)) {
+return true;
+}
+return false;
+}
+
+private void forceModifyAuthorityInPool(byte[] data, ByteBuffer buf, int poolOffset, int strIndex, String oldPkg, String newPkg) {
+try {
+int stringCount = buf.getInt(poolOffset + 8);
+if (strIndex < 0 || strIndex >= stringCount) return;
 
 int flags = buf.getInt(poolOffset + 16);
 boolean isUtf8 = (flags & (1 << 8)) != 0;
 int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
 int offsetTable = poolOffset + 28;
 int strOffset = stringsStart + buf.getInt(offsetTable + (strIndex * 4));
+char cloneChar = newPkg.charAt(newPkg.length() - 1);
 
 if (isUtf8) {
 int len1 = data[strOffset] & 0xFF;
@@ -808,6 +826,70 @@ int len2 = data[strOffset + skip] & 0xFF;
 int skip2 = ((len2 & 0x80) != 0) ? 2 : 1;
 int actualStart = strOffset + skip + skip2;
 int byteLen = ((len2 & 0x80) != 0) ? (((len2 & 0x7F) << 8) | (data[strOffset + skip + 1] & 0xFF)) : len2;
-return new String(data, actualStart, byteLen, StandardCharsets.UTF_8);
+if (byteLen <= 0 || actualStart + byteLen > data.length) return;
+
+byte[] slice = new byte[byteLen];
+System.arraycopy(data, actualStart, slice, 0, byteLen);
+boolean changed = replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_8), newPkg.getBytes(StandardCharsets.UTF_8));
+if (!changed) {
+slice[byteLen - 1] = (byte) cloneChar;
+}
+System.arraycopy(slice, 0, data, actualStart, byteLen);
 } else {
-int len1 = buf
+int len1 = buf.getShort(strOffset) & 0xFFFF;
+int skip = ((len1 & 0x8000) != 0) ? 4 : 2;
+int charLen = ((len1 & 0x8000) != 0) ? (((len1 & 0x7FFF) << 16) | (buf.getShort(strOffset + 2) & 0xFFFF)) : len1;
+int actualStart = strOffset + skip;
+int byteLen = charLen * 2;
+if (byteLen < 2 || actualStart + byteLen > data.length) return;
+
+byte[] slice = new byte[byteLen];
+System.arraycopy(data, actualStart, slice, 0, byteLen);
+boolean changed = replaceBytesInPlace(slice, oldPkg.getBytes(StandardCharsets.UTF_16LE), newPkg.getBytes(StandardCharsets.UTF_16LE));
+if (!changed) {
+slice[byteLen - 2] = (byte) cloneChar;
+slice[byteLen - 1] = 0;
+}
+System.arraycopy(slice, 0, data, actualStart, byteLen);
+}
+} catch (Exception ignored) {
+}
+}
+
+private boolean replaceBytesInPlace(byte[] source, byte[] target, byte[] replacement) {
+if (target.length != replacement.length) return false;
+boolean found = false;
+for (int i = 0; i <= source.length - target.length; i++) {
+boolean match = true;
+for (int j = 0; j < target.length; j++) {
+if (source[i + j] != target[j]) {
+match = false;
+break;
+}
+}
+if (match) {
+System.arraycopy(replacement, 0, source, i, replacement.length);
+i += target.length - 1;
+found = true;
+}
+}
+return found;
+}
+
+private void copyFile(File src, File dst) throws Exception {
+try (InputStream in = new FileInputStream(src);
+OutputStream out = new FileOutputStream(dst)) {
+byte[] buf = new byte[16384];
+int len;
+while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+}
+}
+
+private byte[] readAllBytes(InputStream is) throws Exception {
+ByteArrayOutputStream bos = new ByteArrayOutputStream();
+byte[] buf = new byte[16384];
+int len;
+while ((len = is.read(buf)) > 0) bos.write(buf, 0, len);
+return bos.toByteArray();
+}
+}
