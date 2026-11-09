@@ -122,14 +122,14 @@ public class MainActivity extends AppCompatActivity {
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone Pro APK Cloner v3.8");
+        title.setText("⚡ TechZone Pro APK Cloner v3.7");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Platform-Check Bypass + Original Graphics + Split Installer");
+        statusBanner.setText("Stealth Anti-Detect + PlayStore Spoof + ARSC Graphics Fix");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -324,7 +324,7 @@ public class MainActivity extends AppCompatActivity {
                 badge.setText("✔ Clone #" + currentCloneNum + " Installed (Stealth Mode)");
                 badge.setTextColor(Color.parseColor("#10B981"));
             } else {
-                badge.setText(item.isSplitApk ? "🛡️ Split Bundle (Stealth + Full Icons)" : "🛡️ Standalone (Stealth + New Identity)");
+                badge.setText(item.isSplitApk ? "🛡️ Split Bundle (Stealth + New Identity + Graphics Fix)" : "🛡️ Standalone (Stealth + New Identity)");
                 badge.setTextColor(Color.parseColor(item.isSplitApk ? "#F59E0B" : "#38BDF8"));
             }
             badge.setTextSize(11);
@@ -384,9 +384,9 @@ public class MainActivity extends AppCompatActivity {
 
         TextView infoBox = new TextView(this);
         infoBox.setText("📦 Package: " + targetClonePkg +
-                "\n🕵️ Anti-Detect: Whitelists Cloner Installer + Spoofs Package Check" +
+                "\n🕵️ Anti-Detect: Spoofs Google Play Installer + ReactNative Bundle" +
                 "\n🆔 Identity: New Android_ID, Serial & Device Fingerprint (#" + currentCloneNum + ")" +
-                "\n🎨 Graphics: Preserves Original Split ARSC (" + (splitCount + 1) + " APKs)");
+                "\n🎨 Graphics: Patched ARSC Resource Table (" + (splitCount + 1) + " APKs)");
         infoBox.setTextColor(Color.parseColor("#38BDF8"));
         infoBox.setTextSize(11);
         infoBox.setBackground(createRoundedBg("#1E293B", 18, "#334155", 2));
@@ -473,7 +473,7 @@ public class MainActivity extends AppCompatActivity {
         progressLayout.addView(pb);
 
         TextView msg = new TextView(this);
-        msg.setText("\nBypassing Platform Verification & Preserving Split Graphics...\nPlease wait...");
+        msg.setText("\nInjecting Stealth Identity #" + cloneNum + ", Fixing ARSC Drawables & Spoofing Play Store...\nPlease wait...");
         msg.setTextColor(Color.WHITE);
         msg.setGravity(Gravity.CENTER);
         progressLayout.addView(msg);
@@ -568,6 +568,10 @@ public class MainActivity extends AppCompatActivity {
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
 
             params.setAppPackageName(targetPkg);
+            try {
+                params.setInstallerPackageName("com.android.vending");
+            } catch (Exception ignored) {
+            }
 
             int sessionId = packageInstaller.createSession(params);
             PackageInstaller.Session session = packageInstaller.openSession(sessionId);
@@ -668,10 +672,10 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     data = readAllBytes(zipFile.getInputStream(entry));
                     if (name.equals("resources.arsc")) {
-                        data = patchArscLabelOnly(data, origLabel, customLabel);
+                        data = patchArscPackageAndLabel(data, oldPkg, newPkg, origLabel, customLabel);
                     } else if (name.endsWith(".dex")) {
                         data = patchDexStealthAndAuthorities(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
-                    } else if (name.endsWith(".bundle") || name.startsWith("assets/")) {
+                    } else if (name.endsWith(".bundle") || name.equals("assets/index.android.bundle")) {
                         data = patchReactNativeBundleSafely(data, oldPkg, newPkg, cloneNum);
                     }
                 }
@@ -681,7 +685,7 @@ public class MainActivity extends AppCompatActivity {
                 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
                 boolean isArsc = name.equals("resources.arsc");
 
-                if (!isNativeLib && (isArsc || entry.getMethod() == ZipEntry.STORED)) {
+                if (isNativeLib || isArsc || entry.getMethod() == ZipEntry.STORED) {
                     newEntry.setMethod(ZipEntry.STORED);
                     newEntry.setSize(data.length);
                     newEntry.setCompressedSize(data.length);
@@ -689,10 +693,12 @@ public class MainActivity extends AppCompatActivity {
                     crc.update(data);
                     newEntry.setCrc(crc.getValue());
 
-                    int align = 4;
+                    int align = isNativeLib ? 16384 : 4;
                     byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+
                     long dataStartOffset = cos.count + 30 + nameBytes.length;
                     int padding = (int) ((align - (dataStartOffset % align)) % align);
+
                     if (padding > 0) {
                         newEntry.setExtra(new byte[padding]);
                     }
@@ -713,6 +719,7 @@ public class MainActivity extends AppCompatActivity {
             if (dexData.length < 112) return dexData;
             boolean changed = false;
 
+            // 1. Sync Provider Authorities
             for (String origAuth : modifiedAuthorities) {
                 if (origAuth.contains(oldPkg)) {
                     String newAuth = origAuth.replace(oldPkg, newPkg);
@@ -740,19 +747,21 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
+            // 2. Bypass Package Name Anti-Clone Check (Exact string with null terminator in DEX string pool)
             byte[] exactOldPkgDex = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
             byte[] exactNewPkgDex = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, exactOldPkgDex, exactNewPkgDex)) {
                 changed = true;
             }
 
-            // Whitelist our Cloner package name ("com.techzone.cloner") in place of "com.android.vending"
-            byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
+            // 3. Bypass Installer Package Verification
             byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
-            if (replaceBytesInPlace(dexData, playStoreBytes, clonerPkgBytes)) {
+            byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
+            if (replaceBytesInPlace(dexData, clonerPkgBytes, playStoreBytes)) {
                 changed = true;
             }
 
+            // 4. Device Identity Spoofing (New Android ID, Advertising ID, Serial & Hardware Profile per Clone)
             String cNumStr = String.valueOf(cloneNum % 10);
             if (replaceBytesInPlace(dexData,
                     ("android_id\0").getBytes(StandardCharsets.UTF_8),
@@ -775,6 +784,7 @@ public class MainActivity extends AppCompatActivity {
                 changed = true;
             }
 
+            // Recalculate DEX SHA-1 Signature and Adler32 Checksum so Android ART accepts the modified DEX
             if (changed) {
                 MessageDigest md = MessageDigest.getInstance("SHA-1");
                 md.update(dexData, 32, dexData.length - 32);
@@ -795,19 +805,48 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (bundleData == null || bundleData.length < 64) return bundleData;
 
+            // Check if this is a compiled Hermes Bytecode bundle (Magic header: 0xC6 0x1F 0xBC 0x03)
+            // If it is Hermes bytecode, modifying bytes without recalculating the footer SHA-1 causes an instant crash on launch!
+            boolean isHermesBytecode = ((bundleData[0] & 0xFF) == 0xC6 &&
+                                        (bundleData[1] & 0xFF) == 0x1F &&
+                                        (bundleData[2] & 0xFF) == 0xBC &&
+                                        (bundleData[3] & 0xFF) == 0x03);
+
+            if (isHermesBytecode) {
+                // Only patch if we also update the 20-byte SHA-1 footer at the end of the Hermes file!
+                byte[] oldBytes = oldPkg.getBytes(StandardCharsets.UTF_8);
+                byte[] newBytes = newPkg.getBytes(StandardCharsets.UTF_8);
+                if (replaceBytesInPlace(bundleData, oldBytes, newBytes)) {
+                    MessageDigest md = MessageDigest.getInstance("SHA-1");
+                    md.update(bundleData, 0, bundleData.length - 20);
+                    byte[] sha1 = md.digest();
+                    System.arraycopy(sha1, 0, bundleData, bundleData.length - 20, 20);
+                }
+                return bundleData;
+            }
+
+            // Plain text JS bundle: Replace quoted JS strings like "com.et3arraf.Et3arrafApp" or 'com.et3arraf.Et3arrafApp'
             replaceBytesInPlace(bundleData, ("\"" + oldPkg + "\"").getBytes(StandardCharsets.UTF_8), ("\"" + newPkg + "\"").getBytes(StandardCharsets.UTF_8));
             replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
-
-            replaceBytesInPlace(bundleData, "\"com.android.vending\"".getBytes(StandardCharsets.UTF_8), "\"com.techzone.cloner\"".getBytes(StandardCharsets.UTF_8));
-            replaceBytesInPlace(bundleData, "'com.android.vending'".getBytes(StandardCharsets.UTF_8), "'com.techzone.cloner'".getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
         }
         return bundleData;
     }
 
-    private byte[] patchArscLabelOnly(byte[] arscData, String origLabel, String customLabel) {
+    private byte[] patchArscPackageAndLabel(byte[] arscData, String oldPkg, String newPkg, String origLabel, String customLabel) {
         try {
             if (arscData == null || arscData.length < 32) return arscData;
+
+            // 1. Patch ResTable_package header name (UTF-16LE null-terminated) so Split APK drawables & splash screen icons load properly!
+            byte[] oldPkgUtf16 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+            byte[] newPkgUtf16 = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
+            replaceBytesInPlace(arscData, oldPkgUtf16, newPkgUtf16);
+
+            byte[] oldPkgUtf8 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
+            byte[] newPkgUtf8 = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
+            replaceBytesInPlace(arscData, oldPkgUtf8, newPkgUtf8);
+
+            // 2. Patch App Label if same or shorter length
             if (origLabel != null && customLabel != null && !origLabel.isEmpty() && customLabel.length() <= origLabel.length()) {
                 StringBuilder padded = new StringBuilder(customLabel);
                 while (padded.length() < origLabel.length()) {
