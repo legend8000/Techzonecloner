@@ -38,6 +38,7 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -129,7 +130,7 @@ public class MainActivity extends AppCompatActivity {
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Stealth Anti-Detect + PlayStore Spoof + ARSC Graphics Fix");
+        statusBanner.setText("Zero-OOM Streamer + Stealth Anti-Detect + ARSC Fix");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -206,6 +207,8 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { filterApps(s.toString()); }
             @Override public void afterTextChanged(Editable s) {}
         });
+
+        handleInstallResultIntent(getIntent());
     }
 
     private void updateProfileUI() {
@@ -522,6 +525,9 @@ public class MainActivity extends AppCompatActivity {
                     boolean isBaseApk = (i == 0);
                     repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, item.label, customAppName, isBaseApk, cloneNum);
 
+                    // Free memory before ApkSigner runs
+                    System.gc();
+
                     new ApkSigner.Builder(Collections.singletonList(signerConfig))
                             .setInputApk(unsignedTemp)
                             .setOutputApk(signedPart)
@@ -547,13 +553,13 @@ public class MainActivity extends AppCompatActivity {
                     installSplitApkSession(signedApksToInstall, newPkg);
                 });
 
-            } catch (Exception e) {
+            } catch (Throwable e) { // Catch Throwable (including OutOfMemoryError) so app NEVER crashes silently
                 e.printStackTrace();
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     new AlertDialog.Builder(this)
                             .setTitle("Build Error")
-                            .setMessage("Failed: " + e.getMessage())
+                            .setMessage("Failed: " + e.toString())
                             .setPositiveButton("OK", null)
                             .show();
                 });
@@ -576,11 +582,11 @@ public class MainActivity extends AppCompatActivity {
             int sessionId = packageInstaller.createSession(params);
             PackageInstaller.Session session = packageInstaller.openSession(sessionId);
 
+            byte[] buffer = new byte[32768];
             for (int i = 0; i < apkFiles.size(); i++) {
                 File apk = apkFiles.get(i);
                 try (OutputStream out = session.openWrite("split_" + i + ".apk", 0, apk.length());
                      FileInputStream in = new FileInputStream(apk)) {
-                    byte[] buffer = new byte[16384];
                     int len;
                     while ((len = in.read(buffer)) != -1) {
                         out.write(buffer, 0, len);
@@ -591,6 +597,7 @@ public class MainActivity extends AppCompatActivity {
 
             Intent callbackIntent = new Intent(this, MainActivity.class);
             callbackIntent.setAction("ACTION_INSTALL_RESULT");
+            callbackIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 flags |= PendingIntent.FLAG_MUTABLE;
@@ -600,11 +607,11 @@ public class MainActivity extends AppCompatActivity {
             session.commit(pendingIntent.getIntentSender());
             session.close();
 
-        } catch (Exception e) {
+        } catch (Throwable e) {
             e.printStackTrace();
             new AlertDialog.Builder(this)
                     .setTitle("Installer Error")
-                    .setMessage(e.getMessage())
+                    .setMessage(e.toString())
                     .setPositiveButton("OK", null)
                     .show();
         }
@@ -613,21 +620,27 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        handleInstallResultIntent(intent);
+    }
+
+    private void handleInstallResultIntent(Intent intent) {
         if (intent != null && "ACTION_INSTALL_RESULT".equals(intent.getAction())) {
+            intent.setAction(null); // Prevent duplicate trigger
             Bundle extras = intent.getExtras();
             if (extras != null) {
-                int status = extras.getInt(PackageInstaller.EXTRA_STATUS);
+                int status = extras.getInt(PackageInstaller.EXTRA_STATUS, -999);
                 String statusMsg = extras.getString(PackageInstaller.EXTRA_STATUS_MESSAGE);
 
                 if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                     Intent confirmIntent = (Intent) extras.get(Intent.EXTRA_INTENT);
                     if (confirmIntent != null) {
+                        confirmIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(confirmIntent);
                     }
                 } else if (status == PackageInstaller.STATUS_SUCCESS) {
                     Toast.makeText(this, "🎉 Stealth Clone Installed Successfully!", Toast.LENGTH_LONG).show();
-                    adapter.notifyDataSetChanged();
-                } else {
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                } else if (status != -999) {
                     new AlertDialog.Builder(this)
                             .setTitle("❌ Exact System Install Error")
                             .setMessage("Status Code: " + status + "\n\nExact Reason:\n" + statusMsg)
@@ -638,9 +651,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Memory-Safe Streaming Repackager:
+     * Only loads files that actually need binary patching into RAM.
+     * Streams all .so libraries, images, and raw assets using a 32KB buffer so OutOfMemoryError NEVER happens!
+     */
     private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk, int cloneNum) throws Exception {
         try (ZipFile zipFile = new ZipFile(srcApk);
-             CountingOutputStream cos = new CountingOutputStream(new FileOutputStream(dstApk));
+             CountingOutputStream cos = new CountingOutputStream(new BufferedOutputStream(new FileOutputStream(dstApk), 65536));
              ZipOutputStream zos = new ZipOutputStream(cos)) {
 
             zos.setLevel(Deflater.DEFAULT_COMPRESSION);
@@ -653,6 +671,7 @@ public class MainActivity extends AppCompatActivity {
                 patchedManifestData = patchAxmlManifestSafely(rawManifest, oldPkg, newPkg, customLabel, isBaseApk, modifiedAuthorities);
             }
 
+            byte[] streamBuf = new byte[32768];
             Enumeration<? extends ZipEntry> entries = zipFile.entries();
 
             while (entries.hasMoreElements()) {
@@ -666,50 +685,86 @@ public class MainActivity extends AppCompatActivity {
                     continue;
                 }
 
-                byte[] data;
-                if (name.equals("AndroidManifest.xml") && patchedManifestData != null) {
-                    data = patchedManifestData;
-                } else {
-                    data = readAllBytes(zipFile.getInputStream(entry));
-                    if (name.equals("resources.arsc")) {
-                        data = patchArscPackageAndLabel(data, oldPkg, newPkg, origLabel, customLabel);
-                    } else if (name.endsWith(".dex")) {
-                        data = patchDexStealthAndAuthorities(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
-                    } else if (name.endsWith(".bundle") || name.equals("assets/index.android.bundle")) {
-                        data = patchReactNativeBundleSafely(data, oldPkg, newPkg, cloneNum);
-                    }
-                }
+                boolean isManifest = name.equals("AndroidManifest.xml");
+                boolean isArsc = name.equals("resources.arsc");
+                boolean isDex = name.endsWith(".dex");
+                boolean isBundle = name.endsWith(".bundle") || name.equals("assets/index.android.bundle");
+                boolean needsInMemoryPatch = isManifest || isArsc || isDex || isBundle;
 
                 ZipEntry newEntry = new ZipEntry(name);
-
                 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
-                boolean isArsc = name.equals("resources.arsc");
 
-                if (isNativeLib || isArsc || entry.getMethod() == ZipEntry.STORED) {
-                    newEntry.setMethod(ZipEntry.STORED);
-                    newEntry.setSize(data.length);
-                    newEntry.setCompressedSize(data.length);
-                    CRC32 crc = new CRC32();
-                    crc.update(data);
-                    newEntry.setCrc(crc.getValue());
-
-                    int align = isNativeLib ? 16384 : 4;
-                    byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
-
-                    long dataStartOffset = cos.count + 30 + nameBytes.length;
-                    int padding = (int) ((align - (dataStartOffset % align)) % align);
-
-                    if (padding > 0) {
-                        newEntry.setExtra(new byte[padding]);
+                if (needsInMemoryPatch) {
+                    byte[] data;
+                    if (isManifest && patchedManifestData != null) {
+                        data = patchedManifestData;
+                    } else {
+                        data = readAllBytes(zipFile.getInputStream(entry));
+                        if (isArsc) {
+                            data = patchArscPackageAndLabel(data, oldPkg, newPkg, origLabel, customLabel);
+                        } else if (isDex) {
+                            data = patchDexStealthAndAuthorities(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
+                        } else if (isBundle) {
+                            data = patchReactNativeBundleSafely(data, oldPkg, newPkg, cloneNum);
+                        }
                     }
-                } else {
-                    newEntry.setMethod(ZipEntry.DEFLATED);
-                }
 
-                zos.putNextEntry(newEntry);
-                zos.write(data);
-                zos.closeEntry();
-                zos.flush();
+                    if (isArsc || entry.getMethod() == ZipEntry.STORED) {
+                        newEntry.setMethod(ZipEntry.STORED);
+                        newEntry.setSize(data.length);
+                        newEntry.setCompressedSize(data.length);
+                        CRC32 crc = new CRC32();
+                        crc.update(data);
+                        newEntry.setCrc(crc.getValue());
+
+                        int align = 4;
+                        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+                        long dataStartOffset = cos.count + 30 + nameBytes.length;
+                        int padding = (int) ((align - (dataStartOffset % align)) % align);
+                        if (padding > 0) {
+                            newEntry.setExtra(new byte[padding]);
+                        }
+                    } else {
+                        newEntry.setMethod(ZipEntry.DEFLATED);
+                    }
+
+                    zos.putNextEntry(newEntry);
+                    zos.write(data);
+                    zos.closeEntry();
+                    zos.flush();
+
+                } else {
+                    // STREAM DIRECTLY WITHOUT LOADING INTO RAM (Fixes OutOfMemoryError on large .so / assets!)
+                    long size = entry.getSize();
+                    long crc = entry.getCrc();
+
+                    if ((isNativeLib || entry.getMethod() == ZipEntry.STORED) && size >= 0 && crc >= 0) {
+                        newEntry.setMethod(ZipEntry.STORED);
+                        newEntry.setSize(size);
+                        newEntry.setCompressedSize(size);
+                        newEntry.setCrc(crc);
+
+                        int align = isNativeLib ? 16384 : 4;
+                        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+                        long dataStartOffset = cos.count + 30 + nameBytes.length;
+                        int padding = (int) ((align - (dataStartOffset % align)) % align);
+                        if (padding > 0) {
+                            newEntry.setExtra(new byte[padding]);
+                        }
+                    } else {
+                        newEntry.setMethod(ZipEntry.DEFLATED);
+                    }
+
+                    zos.putNextEntry(newEntry);
+                    try (InputStream is = zipFile.getInputStream(entry)) {
+                        int len;
+                        while ((len = is.read(streamBuf)) > 0) {
+                            zos.write(streamBuf, 0, len);
+                        }
+                    }
+                    zos.closeEntry();
+                    zos.flush();
+                }
             }
         }
     }
@@ -747,21 +802,23 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // 2. Bypass Package Name Anti-Clone Check (Exact string with null terminator in DEX string pool)
+            // 2. Bypass Package Name Anti-Clone Check
             byte[] exactOldPkgDex = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
             byte[] exactNewPkgDex = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, exactOldPkgDex, exactNewPkgDex)) {
                 changed = true;
             }
 
-            // 3. Bypass Installer Package Verification
-            byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
+            // 3. Bypass "Allowed Platforms Only" (المنصات المسموح بها):
+            // Replace "com.android.vending" inside the target app's DEX with "com.techzone.cloner"
+            // so when Android reports "com.techzone.cloner" as the installer, the app accepts it as official Play Store!
             byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
-            if (replaceBytesInPlace(dexData, clonerPkgBytes, playStoreBytes)) {
+            byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
+            if (replaceBytesInPlace(dexData, playStoreBytes, clonerPkgBytes)) {
                 changed = true;
             }
 
-            // 4. Device Identity Spoofing (New Android ID, Advertising ID, Serial & Hardware Profile per Clone)
+            // 4. Device Identity Spoofing
             String cNumStr = String.valueOf(cloneNum % 10);
             if (replaceBytesInPlace(dexData,
                     ("android_id\0").getBytes(StandardCharsets.UTF_8),
@@ -784,7 +841,6 @@ public class MainActivity extends AppCompatActivity {
                 changed = true;
             }
 
-            // Recalculate DEX SHA-1 Signature and Adler32 Checksum so Android ART accepts the modified DEX
             if (changed) {
                 MessageDigest md = MessageDigest.getInstance("SHA-1");
                 md.update(dexData, 32, dexData.length - 32);
@@ -805,18 +861,15 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (bundleData == null || bundleData.length < 64) return bundleData;
 
-            // Check if this is a compiled Hermes Bytecode bundle (Magic header: 0xC6 0x1F 0xBC 0x03)
-            // If it is Hermes bytecode, modifying bytes without recalculating the footer SHA-1 causes an instant crash on launch!
             boolean isHermesBytecode = ((bundleData[0] & 0xFF) == 0xC6 &&
                                         (bundleData[1] & 0xFF) == 0x1F &&
                                         (bundleData[2] & 0xFF) == 0xBC &&
                                         (bundleData[3] & 0xFF) == 0x03);
 
             if (isHermesBytecode) {
-                // Only patch if we also update the 20-byte SHA-1 footer at the end of the Hermes file!
-                byte[] oldBytes = oldPkg.getBytes(StandardCharsets.UTF_8);
-                byte[] newBytes = newPkg.getBytes(StandardCharsets.UTF_8);
-                if (replaceBytesInPlace(bundleData, oldBytes, newBytes)) {
+                boolean mod1 = replaceBytesInPlace(bundleData, oldPkg.getBytes(StandardCharsets.UTF_8), newPkg.getBytes(StandardCharsets.UTF_8));
+                boolean mod2 = replaceBytesInPlace(bundleData, "com.android.vending".getBytes(StandardCharsets.UTF_8), "com.techzone.cloner".getBytes(StandardCharsets.UTF_8));
+                if (mod1 || mod2) {
                     MessageDigest md = MessageDigest.getInstance("SHA-1");
                     md.update(bundleData, 0, bundleData.length - 20);
                     byte[] sha1 = md.digest();
@@ -825,9 +878,10 @@ public class MainActivity extends AppCompatActivity {
                 return bundleData;
             }
 
-            // Plain text JS bundle: Replace quoted JS strings like "com.et3arraf.Et3arrafApp" or 'com.et3arraf.Et3arrafApp'
             replaceBytesInPlace(bundleData, ("\"" + oldPkg + "\"").getBytes(StandardCharsets.UTF_8), ("\"" + newPkg + "\"").getBytes(StandardCharsets.UTF_8));
             replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
+            replaceBytesInPlace(bundleData, "\"com.android.vending\"".getBytes(StandardCharsets.UTF_8), "\"com.techzone.cloner\"".getBytes(StandardCharsets.UTF_8));
+            replaceBytesInPlace(bundleData, "'com.android.vending'".getBytes(StandardCharsets.UTF_8), "'com.techzone.cloner'".getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
         }
         return bundleData;
@@ -837,7 +891,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (arscData == null || arscData.length < 32) return arscData;
 
-            // 1. Patch ResTable_package header name (UTF-16LE null-terminated) so Split APK drawables & splash screen icons load properly!
+            // 1. Patch ResTable_package header name so Split APK drawables & splash screen icons load properly!
             byte[] oldPkgUtf16 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             byte[] newPkgUtf16 = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             replaceBytesInPlace(arscData, oldPkgUtf16, newPkgUtf16);
@@ -947,6 +1001,9 @@ public class MainActivity extends AppCompatActivity {
         return data;
     }
 
+    /**
+     * Overwrites ONLY unused build/stamp metadata strings in StringPool (NEVER CoreComponentFactory!).
+     */
     private int findAndOverwriteDummyStringInPool(byte[] data, ByteBuffer buf, String newLabel) {
         try {
             int offset = 8;
@@ -965,7 +1022,12 @@ public class MainActivity extends AppCompatActivity {
 
                     for (int i = 0; i < stringCount; i++) {
                         String s = getStringFromPool(data, buf, offset, i);
-                        if (s.startsWith("http://schemas.android.com/apk/res-auto") || s.startsWith("androidx.core.app.CoreComponentFactory")) {
+                        if (s.startsWith("http://schemas.android.com/apk/res-auto") ||
+                            s.equals("com.android.stamp.source") ||
+                            s.equals("com.android.stamp.type") ||
+                            s.equals("com.android.vending.splits") ||
+                            s.equals("com.android.dynamic.apk.fused.modules")) {
+
                             int strOffset = stringsStart + buf.getInt(offsetTable + (i * 4));
                             if (!isUtf8) {
                                 int len1 = buf.getShort(strOffset) & 0xFFFF;
@@ -1182,7 +1244,7 @@ public class MainActivity extends AppCompatActivity {
     private void copyFile(File src, File dst) throws Exception {
         try (InputStream in = new FileInputStream(src);
              OutputStream out = new FileOutputStream(dst)) {
-            byte[] buf = new byte[16384];
+            byte[] buf = new byte[32768];
             int len;
             while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
         }
