@@ -185,7 +185,7 @@ public class MainActivity extends AppCompatActivity {
         searchBox.setPadding(32, 22, 32, 22);
         LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         searchLp.setMargins(0, 24, 0, 20);
-        searchLp.setLayoutParams(searchLp);
+        searchBox.setLayoutParams(searchLp);
         root.addView(searchBox);
 
         ListView listView = new ListView(this);
@@ -668,8 +668,6 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     data = readAllBytes(zipFile.getInputStream(entry));
                     if (name.equals("resources.arsc")) {
-                        // DO NOT rename the package inside resources.arsc!
-                        // Keeping the original resource package name allows Split APK drawables (like the girl splash icon) to link and load properly!
                         data = patchArscLabelOnly(data, origLabel, customLabel);
                     } else if (name.endsWith(".dex")) {
                         data = patchDexStealthAndAuthorities(data, oldPkg, newPkg, modifiedAuthorities, cloneNum);
@@ -683,7 +681,6 @@ public class MainActivity extends AppCompatActivity {
                 boolean isNativeLib = name.endsWith(".so") || name.startsWith("lib/");
                 boolean isArsc = name.equals("resources.arsc");
 
-                // Compress .so files with DEFLATED (paired with extractNativeLibs=true) so alignment never fails
                 if (!isNativeLib && (isArsc || entry.getMethod() == ZipEntry.STORED)) {
                     newEntry.setMethod(ZipEntry.STORED);
                     newEntry.setSize(data.length);
@@ -716,7 +713,6 @@ public class MainActivity extends AppCompatActivity {
             if (dexData.length < 112) return dexData;
             boolean changed = false;
 
-            // 1. Sync Provider Authorities
             for (String origAuth : modifiedAuthorities) {
                 if (origAuth.contains(oldPkg)) {
                     String newAuth = origAuth.replace(oldPkg, newPkg);
@@ -744,26 +740,19 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // 2. Bypass Package Name Anti-Clone Check in DEX String Pool
-            // In DEX MUTF-8, exact strings are preceded by their length byte (e.g., 24 = 0x18 for "com.et3arraf.Et3arrafApp") and followed by \0
             byte[] exactOldPkgDex = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
             byte[] exactNewPkgDex = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, exactOldPkgDex, exactNewPkgDex)) {
                 changed = true;
             }
 
-            // 3. CRITICAL FIX FOR "Allowed Platforms Only" (المنصات المسموح بها):
-            // When our Cloner installs the app, Android sets getInstallerPackageName() = "com.techzone.cloner" (19 chars).
-            // The app checks if getInstallerPackageName().equals("com.android.vending") (19 chars).
-            // So we replace "com.android.vending" INSIDE the target app's DEX with "com.techzone.cloner"!
-            // Now when the app checks if it was installed from the allowed store, it matches "com.techzone.cloner" and passes!
+            // Whitelist our Cloner package name ("com.techzone.cloner") in place of "com.android.vending"
             byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
             byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, playStoreBytes, clonerPkgBytes)) {
                 changed = true;
             }
 
-            // 4. Device Identity Spoofing (New Android ID, Advertising ID, Serial & Hardware Profile per Clone)
             String cNumStr = String.valueOf(cloneNum % 10);
             if (replaceBytesInPlace(dexData,
                     ("android_id\0").getBytes(StandardCharsets.UTF_8),
@@ -786,7 +775,6 @@ public class MainActivity extends AppCompatActivity {
                 changed = true;
             }
 
-            // Recalculate DEX SHA-1 Signature and Adler32 Checksum
             if (changed) {
                 MessageDigest md = MessageDigest.getInstance("SHA-1");
                 md.update(dexData, 32, dexData.length - 32);
@@ -807,11 +795,9 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (bundleData == null || bundleData.length < 64) return bundleData;
 
-            // 1. Replace quoted JS strings like "com.et3arraf.Et3arrafApp" or 'com.et3arraf.Et3arrafApp'
             replaceBytesInPlace(bundleData, ("\"" + oldPkg + "\"").getBytes(StandardCharsets.UTF_8), ("\"" + newPkg + "\"").getBytes(StandardCharsets.UTF_8));
             replaceBytesInPlace(bundleData, ("'" + oldPkg + "'").getBytes(StandardCharsets.UTF_8), ("'" + newPkg + "'").getBytes(StandardCharsets.UTF_8));
 
-            // 2. Also whitelist our installer "com.techzone.cloner" inside the JS bundle if it checks installer in JS!
             replaceBytesInPlace(bundleData, "\"com.android.vending\"".getBytes(StandardCharsets.UTF_8), "\"com.techzone.cloner\"".getBytes(StandardCharsets.UTF_8));
             replaceBytesInPlace(bundleData, "'com.android.vending'".getBytes(StandardCharsets.UTF_8), "'com.techzone.cloner'".getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
@@ -1014,7 +1000,7 @@ public class MainActivity extends AppCompatActivity {
             int stringCount = buf.getInt(poolOffset + 8);
             int flags = buf.getInt(poolOffset + 16);
             boolean isUtf8 = (flags & (1 << 8)) != 0;
-            int stringsStart = poolOffset + buf.getInt(offsetTableOffset(poolOffset) - 8);
+            int stringsStart = poolOffset + buf.getInt(poolOffset + 20);
             int offsetTable = poolOffset + 28;
 
             String prefix = oldPkg + ".";
@@ -1063,10 +1049,6 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (Exception ignored) {
         }
-    }
-
-    private int offsetTableOffset(int poolOffset) {
-        return poolOffset + 28;
     }
 
     private boolean shouldPatchManifestString(String val, String prefix) {
