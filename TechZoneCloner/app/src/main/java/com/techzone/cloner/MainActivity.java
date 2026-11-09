@@ -123,14 +123,14 @@ public class MainActivity extends AppCompatActivity {
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone Pro APK Cloner v3.7");
+        title.setText("⚡ TechZone Pro APK Cloner v4.0");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Zero-OOM Streamer + Stealth Anti-Detect + ARSC Fix");
+        statusBanner.setText("Android 10+ Compatible + Stealth Anti-Detect + ARSC Fix");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -573,11 +573,6 @@ public class MainActivity extends AppCompatActivity {
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
 
             params.setAppPackageName(targetPkg);
-            try {
-                // Must catch Throwable (not Exception) because Android < 14 throws NoSuchMethodError!
-                params.setInstallerPackageName("com.android.vending");
-            } catch (Throwable ignored) {
-            }
 
             int sessionId = packageInstaller.createSession(params);
             PackageInstaller.Session session = packageInstaller.openSession(sessionId);
