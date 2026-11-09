@@ -123,14 +123,14 @@ public class MainActivity extends AppCompatActivity {
         header.setPadding(32, 28, 32, 28);
 
         TextView title = new TextView(this);
-        title.setText("⚡ TechZone Pro APK Cloner v3.7");
+        title.setText("⚡ TechZone Pro APK Cloner v4.0");
         title.setTextColor(Color.parseColor("#38BDF8"));
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         header.addView(title);
 
         statusBanner = new TextView(this);
-        statusBanner.setText("Zero-OOM Streamer + Stealth Anti-Detect + ARSC Fix");
+        statusBanner.setText("Android 10+ Compatible + Stealth Anti-Detect + ARSC Fix");
         statusBanner.setTextColor(Color.parseColor("#94A3B8"));
         statusBanner.setTextSize(12);
         statusBanner.setPadding(0, 8, 0, 20);
@@ -525,7 +525,6 @@ public class MainActivity extends AppCompatActivity {
                     boolean isBaseApk = (i == 0);
                     repackageSingleApk(src, unsignedTemp, item.packageName, newPkg, item.label, customAppName, isBaseApk, cloneNum);
 
-                    // Free memory before ApkSigner runs
                     System.gc();
 
                     new ApkSigner.Builder(Collections.singletonList(signerConfig))
@@ -553,7 +552,7 @@ public class MainActivity extends AppCompatActivity {
                     installSplitApkSession(signedApksToInstall, newPkg);
                 });
 
-            } catch (Throwable e) { // Catch Throwable (including OutOfMemoryError) so app NEVER crashes silently
+            } catch (Throwable e) {
                 e.printStackTrace();
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
@@ -574,10 +573,6 @@ public class MainActivity extends AppCompatActivity {
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
 
             params.setAppPackageName(targetPkg);
-            try {
-                params.setInstallerPackageName("com.android.vending");
-            } catch (Exception ignored) {
-            }
 
             int sessionId = packageInstaller.createSession(params);
             PackageInstaller.Session session = packageInstaller.openSession(sessionId);
@@ -625,7 +620,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void handleInstallResultIntent(Intent intent) {
         if (intent != null && "ACTION_INSTALL_RESULT".equals(intent.getAction())) {
-            intent.setAction(null); // Prevent duplicate trigger
+            intent.setAction(null);
             Bundle extras = intent.getExtras();
             if (extras != null) {
                 int status = extras.getInt(PackageInstaller.EXTRA_STATUS, -999);
@@ -651,11 +646,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Memory-Safe Streaming Repackager:
-     * Only loads files that actually need binary patching into RAM.
-     * Streams all .so libraries, images, and raw assets using a 32KB buffer so OutOfMemoryError NEVER happens!
-     */
     private void repackageSingleApk(File srcApk, File dstApk, String oldPkg, String newPkg, String origLabel, String customLabel, boolean isBaseApk, int cloneNum) throws Exception {
         try (ZipFile zipFile = new ZipFile(srcApk);
              CountingOutputStream cos = new CountingOutputStream(new BufferedOutputStream(new FileOutputStream(dstApk), 65536));
@@ -734,7 +724,6 @@ public class MainActivity extends AppCompatActivity {
                     zos.flush();
 
                 } else {
-                    // STREAM DIRECTLY WITHOUT LOADING INTO RAM (Fixes OutOfMemoryError on large .so / assets!)
                     long size = entry.getSize();
                     long crc = entry.getCrc();
 
@@ -774,7 +763,6 @@ public class MainActivity extends AppCompatActivity {
             if (dexData.length < 112) return dexData;
             boolean changed = false;
 
-            // 1. Sync Provider Authorities
             for (String origAuth : modifiedAuthorities) {
                 if (origAuth.contains(oldPkg)) {
                     String newAuth = origAuth.replace(oldPkg, newPkg);
@@ -802,23 +790,18 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // 2. Bypass Package Name Anti-Clone Check
             byte[] exactOldPkgDex = (oldPkg + "\0").getBytes(StandardCharsets.UTF_8);
             byte[] exactNewPkgDex = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, exactOldPkgDex, exactNewPkgDex)) {
                 changed = true;
             }
 
-            // 3. Bypass "Allowed Platforms Only" (المنصات المسموح بها):
-            // Replace "com.android.vending" inside the target app's DEX with "com.techzone.cloner"
-            // so when Android reports "com.techzone.cloner" as the installer, the app accepts it as official Play Store!
             byte[] playStoreBytes = "com.android.vending".getBytes(StandardCharsets.UTF_8);
             byte[] clonerPkgBytes = "com.techzone.cloner".getBytes(StandardCharsets.UTF_8);
             if (replaceBytesInPlace(dexData, playStoreBytes, clonerPkgBytes)) {
                 changed = true;
             }
 
-            // 4. Device Identity Spoofing
             String cNumStr = String.valueOf(cloneNum % 10);
             if (replaceBytesInPlace(dexData,
                     ("android_id\0").getBytes(StandardCharsets.UTF_8),
@@ -891,7 +874,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (arscData == null || arscData.length < 32) return arscData;
 
-            // 1. Patch ResTable_package header name so Split APK drawables & splash screen icons load properly!
             byte[] oldPkgUtf16 = (oldPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             byte[] newPkgUtf16 = (newPkg + "\0").getBytes(StandardCharsets.UTF_16LE);
             replaceBytesInPlace(arscData, oldPkgUtf16, newPkgUtf16);
@@ -900,7 +882,6 @@ public class MainActivity extends AppCompatActivity {
             byte[] newPkgUtf8 = (newPkg + "\0").getBytes(StandardCharsets.UTF_8);
             replaceBytesInPlace(arscData, oldPkgUtf8, newPkgUtf8);
 
-            // 2. Patch App Label if same or shorter length
             if (origLabel != null && customLabel != null && !origLabel.isEmpty() && customLabel.length() <= origLabel.length()) {
                 StringBuilder padded = new StringBuilder(customLabel);
                 while (padded.length() < origLabel.length()) {
@@ -1001,9 +982,6 @@ public class MainActivity extends AppCompatActivity {
         return data;
     }
 
-    /**
-     * Overwrites ONLY unused build/stamp metadata strings in StringPool (NEVER CoreComponentFactory!).
-     */
     private int findAndOverwriteDummyStringInPool(byte[] data, ByteBuffer buf, String newLabel) {
         try {
             int offset = 8;
